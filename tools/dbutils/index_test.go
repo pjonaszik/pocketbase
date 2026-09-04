@@ -169,6 +169,43 @@ func TestIndexIsValid(t *testing.T) {
 	}
 }
 
+func TestParseIndexWhereWithParens(t *testing.T) {
+	scenarios := []struct {
+		name  string
+		where string
+	}{
+		{"plain predicate", "test = 1"},
+		{"parenthesized predicate", "(test = 1)"},
+		{"IN list", "test IN ('x','y')"},
+		{"function call", "length(test) > 0"},
+		{"OR of parenthesized", "(a = 1) OR (b = 2)"},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			idx := dbutils.Index{
+				IndexName: "idx",
+				TableName: "tbl",
+				Columns:   []dbutils.IndexColumn{{Name: "a"}},
+				Where:     s.where,
+			}
+
+			built := idx.Build()
+
+			parsed := dbutils.ParseIndex(built)
+			if !parsed.IsValid() {
+				t.Fatalf("ParseIndex(%q) produced an invalid index", built)
+			}
+			if parsed.Where != s.where {
+				t.Fatalf("expected Where %q, got %q (from %q)", s.where, parsed.Where, built)
+			}
+			if got := parsed.Build(); got != built {
+				t.Fatalf("Build/ParseIndex round trip broke\n built: %q\n   got: %q", built, got)
+			}
+		})
+	}
+}
+
 func TestIndexBuild(t *testing.T) {
 	scenarios := []struct {
 		name     string

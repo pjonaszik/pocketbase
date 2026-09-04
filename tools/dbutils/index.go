@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	indexRegex       = regexp.MustCompile(`(?im)create\s+(unique\s+)?\s*index\s*(if\s+not\s+exists\s+)?(\S*)\s+on\s+(\S*)\s*\(([\s\S]*)\)(?:\s*where\s+([\s\S]*))?`)
+	indexRegex       = regexp.MustCompile(`(?im)create\s+(unique\s+)?\s*index\s*(if\s+not\s+exists\s+)?(\S*)\s+on\s+(\S*?)\s*\(`)
 	indexColumnRegex = regexp.MustCompile(`(?im)^([\s\S]+?)(?:\s+collate\s+([\w]+))?(?:\s+(asc|desc))?$`)
 )
 
@@ -123,12 +123,74 @@ func (idx Index) Build() string {
 	return str.String()
 }
 
+// splitIndexColumnsAndWhere splits the part of a "CREATE INDEX" statement
+// starting at the opening "(" of the columns list into the raw columns
+// expression and the optional trailing WHERE expression.
+//
+// Parentheses are matched with a depth counter that ignores anything inside
+// single/double/backtick quoted literals, so that parentheses within a column
+// expression (ex. json_extract(...)) or a partial-index WHERE predicate
+// (ex. col IN ('a','b')) are handled correctly.
+func splitIndexColumnsAndWhere(s string) (columns string, where string, ok bool) {
+	open := strings.IndexByte(s, '(')
+	if open < 0 {
+		return "", "", false
+	}
+
+	depth := 0
+	var quote byte
+	for i := open; i < len(s); i++ {
+		c := s[i]
+
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch c {
+		case '\'', '"', '`':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				columns = s[open+1 : i]
+				rest := strings.TrimSpace(s[i+1:])
+				if len(rest) >= 5 && strings.EqualFold(rest[:5], "where") {
+					where = strings.TrimSpace(rest[5:])
+				}
+				return columns, where, true
+			}
+		}
+	}
+
+	return "", "", false
+}
+
 // ParseIndex parses the provided "CREATE INDEX" SQL string into Index struct.
 func ParseIndex(createIndexExpr string) Index {
 	result := Index{}
 
-	matches := indexRegex.FindStringSubmatch(createIndexExpr)
-	if len(matches) != 7 {
+	loc := indexRegex.FindStringSubmatchIndex(createIndexExpr)
+	if len(loc) != 10 {
+		return result
+	}
+	matches := make([]string, 5)
+	for i := 0; i < 5; i++ {
+		if loc[2*i] >= 0 {
+			matches[i] = createIndexExpr[loc[2*i]:loc[2*i+1]]
+		}
+	}
+
+	// the columns list starts at the "(" that the regex stops on;
+	// scan it with balanced parentheses (honoring quotes) so that
+	// parentheses inside a column expression or a WHERE predicate
+	// do not confuse the split between the columns and the WHERE clause.
+	columnsExpr, whereExpr, ok := splitIndexColumnsAndWhere(createIndexExpr[loc[1]-1:])
+	if !ok {
 		return result
 	}
 
@@ -162,7 +224,7 @@ func ParseIndex(createIndexExpr string) Index {
 
 	// Columns
 	// ---
-	columnsTk := tokenizer.NewFromString(matches[5])
+	columnsTk := tokenizer.NewFromString(columnsExpr)
 	columnsTk.Separators(',')
 
 	rawColumns, _ := columnsTk.ScanAll()
@@ -189,7 +251,7 @@ func ParseIndex(createIndexExpr string) Index {
 
 	// WHERE expression
 	// ---
-	result.Where = strings.TrimSpace(matches[6])
+	result.Where = strings.TrimSpace(whereExpr)
 
 	return result
 }
