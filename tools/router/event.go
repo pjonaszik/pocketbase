@@ -190,22 +190,26 @@ const jsonFieldsParam = "fields"
 // with earlier versions and to prevent unnecessary causing a response error.
 func (e *Event) JSON(status int, data any) error {
 	e.setResponseHeaderIfEmpty(headerContentType, "application/json")
-	e.Response.WriteHeader(status)
 
 	rawFields := e.Request.URL.Query().Get(jsonFieldsParam)
 
-	// error response or no fields to pick
-	if rawFields == "" || status < 200 || status > 299 {
-		return json.MarshalWrite(e.Response, data, jsontext.AllowInvalidUTF8(true))
-	}
-
 	// pick only the requested fields
-	modified, err := picker.Pick(data, rawFields)
-	if err != nil {
-		return err
+	//
+	// note: this is done before writing the status header so that a
+	// picker error (ex. a malformed fields expression) can still be
+	// handled by the router ErrorHandler instead of being swallowed
+	// after a 200 header has already been flushed
+	if rawFields != "" && status >= 200 && status <= 299 {
+		modified, err := picker.Pick(data, rawFields)
+		if err != nil {
+			return err
+		}
+		data = modified
 	}
 
-	return json.MarshalWrite(e.Response, modified, jsontext.AllowInvalidUTF8(true))
+	e.Response.WriteHeader(status)
+
+	return json.MarshalWrite(e.Response, data, jsontext.AllowInvalidUTF8(true))
 }
 
 // XML writes an XML response.
