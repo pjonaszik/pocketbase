@@ -49,11 +49,15 @@ var TokenFunctions = map[string]func(
 
 		return &ResolverResult{
 			NullFallback: NullFallbackDisabled,
-			Identifier: `(6371 * acos(` +
+			// note: the acos() argument is clamped to [-1, 1] because for
+			// identical or near-identical points it can exceed 1 by a
+			// floating point rounding error, which would make SQLite acos()
+			// return NULL (out of domain) instead of a 0 km distance.
+			Identifier: `(6371 * acos(min(1, max(-1, ` +
 				`cos(radians(` + latA + `)) * cos(radians(` + latB + `)) * ` +
 				`cos(radians(` + lonB + `) - radians(` + lonA + `)) + ` +
 				`sin(radians(` + latA + `)) * sin(radians(` + latB + `))` +
-				`))`,
+				`))))`,
 			Params: mergeParams(resolvedArgs[0].Params, resolvedArgs[1].Params, resolvedArgs[2].Params, resolvedArgs[3].Params),
 		}, nil
 	},
