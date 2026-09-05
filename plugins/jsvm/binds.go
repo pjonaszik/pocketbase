@@ -1012,7 +1012,10 @@ func BindHTTP(vm *goja.Runtime) {
 		}
 		defer res.Body.Close()
 
-		bodyRaw, _ := io.ReadAll(res.Body)
+		bodyRaw, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, err
+		}
 
 		result := &sendResult{
 			StatusCode: res.StatusCode,
