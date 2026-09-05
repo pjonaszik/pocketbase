@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	crand "crypto/rand"
 	"encoding/base64"
+	"errors"
 	"io"
 )
 
@@ -55,6 +56,10 @@ func Decrypt(cipherText string, key string) ([]byte, error) {
 	cipherByte, err := base64.StdEncoding.DecodeString(cipherText)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(cipherByte) < nonceSize {
+		return nil, errors.New("failed to decrypt: cipher text is too short")
 	}
 
 	nonce, cipherByteClean := cipherByte[:nonceSize], cipherByte[nonceSize:]
