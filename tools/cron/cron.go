@@ -36,10 +36,9 @@ type Cron struct {
 // You can change the default timezone with Cron.SetTimezone().
 func New() *Cron {
 	return &Cron{
-		interval:   1 * time.Minute,
-		timezone:   time.UTC,
-		jobs:       []*Job{},
-		tickerDone: make(chan bool),
+		interval: 1 * time.Minute,
+		timezone: time.UTC,
+		jobs:     []*Job{},
 	}
 }
 
@@ -163,13 +162,19 @@ func (c *Cron) Stop() {
 		c.startTimer = nil
 	}
 
-	if c.ticker == nil {
-		return // already stopped
+	// closing (instead of a blocking send) wakes the ticker goroutine
+	// without holding it hostage to a rendezvous while we hold the write
+	// lock, and signals a startup callback that already fired but has not
+	// built the ticker yet to abort (its captured channel != c.tickerDone)
+	if c.tickerDone != nil {
+		close(c.tickerDone)
+		c.tickerDone = nil
 	}
 
-	c.tickerDone <- true
-	c.ticker.Stop()
-	c.ticker = nil
+	if c.ticker != nil {
+		c.ticker.Stop()
+		c.ticker = nil
+	}
 }
 
 // Start starts the cron ticker.
@@ -184,9 +189,23 @@ func (c *Cron) Start() {
 	delay := next.Sub(now)
 
 	c.mux.Lock()
+	defer c.mux.Unlock()
+
+	done := make(chan bool)
+	c.tickerDone = done
+
 	c.startTimer = time.AfterFunc(delay, func() {
 		c.mux.Lock()
+		// abort if Stop() (or a newer Start()) ran during the startup
+		// delay window, otherwise we would leak a ticker that keeps firing
+		// jobs after a Stop() that already reported the cron stopped
+		if c.tickerDone != done {
+			c.mux.Unlock()
+			return
+		}
+		c.startTimer = nil
 		c.ticker = time.NewTicker(c.interval)
+		ticker := c.ticker
 		c.mux.Unlock()
 
 		// run immediately at 00
@@ -196,15 +215,14 @@ func (c *Cron) Start() {
 		routine.FireAndForget(func() {
 			for {
 				select {
-				case <-c.tickerDone:
+				case <-done:
 					return
-				case t := <-c.ticker.C:
+				case t := <-ticker.C:
 					c.runDue(t)
 				}
 			}
 		})
 	})
-	c.mux.Unlock()
 }
 
 // HasStarted checks whether the current Cron ticker has been started.
