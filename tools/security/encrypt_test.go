@@ -56,6 +56,7 @@ func TestDecrypt(t *testing.T) {
 		{"123", "test", true, ""}, // key must be valid 32 char aes string
 		{"8kcEqilvvYKYcfnSr0aSC54gmnQCsB02SaB8ATlnA==", "abcdabcdabcdabcdabcdabcdabcdabcd", true, ""}, // illegal base64 encoded cipherText
 		{"8kcEqilvv+YKYcfnSr0aSC54gmnQCsB02SaB8ATlnA==", "abcdabcdabcdabcdabcdabcdabcdabcd", false, "123"},
+		{"YWJj", "abcdabcdabcdabcdabcdabcdabcdabcd", true, ""}, // valid base64 ("abc", 3 bytes) shorter than the GCM nonce, must error not panic
 	}
 
 	for i, s := range scenarios {

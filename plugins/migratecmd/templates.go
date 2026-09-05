@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -676,13 +675,11 @@ func marhshalWithoutEscape(v any, prefix string, indent string) ([]byte, error) 
 		return nil, err
 	}
 
-	// unescape escaped unicode characters
-	unescaped, err := strconv.Unquote(strings.ReplaceAll(strconv.Quote(string(raw)), `\\u`, `\u`))
-	if err != nil {
-		return nil, err
-	}
-
-	return []byte(unescaped), nil
+	// note: unlike encoding/json v1, the v2 marshaler above already emits
+	// non-ASCII and HTML-sensitive characters unescaped, so no extra
+	// unescaping pass is needed. The former pass also corrupted data
+	// containing a literal backslash-u sequence.
+	return raw, nil
 }
 
 func escapeBacktick(v string) string {

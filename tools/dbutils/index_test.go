@@ -169,6 +169,76 @@ func TestIndexIsValid(t *testing.T) {
 	}
 }
 
+func TestParseIndexWhereWithParens(t *testing.T) {
+	scenarios := []struct {
+		name  string
+		where string
+	}{
+		{"plain predicate", "test = 1"},
+		{"parenthesized predicate", "(test = 1)"},
+		{"IN list", "test IN ('x','y')"},
+		{"function call", "length(test) > 0"},
+		{"OR of parenthesized", "(a = 1) OR (b = 2)"},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			idx := dbutils.Index{
+				IndexName: "idx",
+				TableName: "tbl",
+				Columns:   []dbutils.IndexColumn{{Name: "a"}},
+				Where:     s.where,
+			}
+
+			built := idx.Build()
+
+			parsed := dbutils.ParseIndex(built)
+			if !parsed.IsValid() {
+				t.Fatalf("ParseIndex(%q) produced an invalid index", built)
+			}
+			if parsed.Where != s.where {
+				t.Fatalf("expected Where %q, got %q (from %q)", s.where, parsed.Where, built)
+			}
+			if got := parsed.Build(); got != built {
+				t.Fatalf("Build/ParseIndex round trip broke\n built: %q\n   got: %q", built, got)
+			}
+		})
+	}
+}
+
+func TestParseIndexMultilineColumnExpression(t *testing.T) {
+	scenarios := []struct {
+		name     string
+		expr     string
+		expected []string // expected column names
+	}{
+		{
+			"expression wrapped across three lines",
+			"CREATE INDEX `i` ON `t` (\n  a || b\n  || c\n)",
+			[]string{"a || b\n  || c"},
+		},
+		{
+			"json_extract wrapped across lines",
+			"CREATE INDEX `i` ON `t` (\n  `col1`,\n  json_extract(\"c\",\n  \"$.a\")\n)",
+			[]string{"col1", "json_extract(\"c\",\n  \"$.a\")"},
+		},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			idx := dbutils.ParseIndex(s.expr)
+			if len(idx.Columns) != len(s.expected) {
+				t.Fatalf("expected %d columns, got %d: %#v", len(s.expected), len(idx.Columns), idx.Columns)
+			}
+			for i, want := range s.expected {
+				if got := idx.Columns[i].Name; got != want {
+					t.Fatalf("column %d: expected %q, got %q", i, want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestIndexBuild(t *testing.T) {
 	scenarios := []struct {
 		name     string

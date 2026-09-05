@@ -9,6 +9,7 @@ import (
 	"github.com/ganigeorgiev/fexpr"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/tools/security"
+	"github.com/spf13/cast"
 )
 
 func TestTokenFunctionsGeoDistance(t *testing.T) {
@@ -117,7 +118,7 @@ func TestTokenFunctionsGeoDistance(t *testing.T) {
 			baseTokenResolver,
 			&ResolverResult{
 				NullFallback: NullFallbackDisabled,
-				Identifier:   `(6371 * acos(cos(radians({:latA})) * cos(radians({:latB})) * cos(radians({:lonB}) - radians({:lonA})) + sin(radians({:latA})) * sin(radians({:latB}))))`,
+				Identifier:   `(6371 * acos(min(1, max(-1, cos(radians({:latA})) * cos(radians({:latB})) * cos(radians({:lonB}) - radians({:lonA})) + sin(radians({:latA})) * sin(radians({:latB}))))))`,
 				Params: map[string]any{
 					"lonA": 1,
 					"latA": 2,
@@ -138,7 +139,7 @@ func TestTokenFunctionsGeoDistance(t *testing.T) {
 			baseTokenResolver,
 			&ResolverResult{
 				NullFallback: NullFallbackDisabled,
-				Identifier:   `(6371 * acos(cos(radians({:latA})) * cos(radians({:latB})) * cos(radians({:lonB}) - radians({:lonA})) + sin(radians({:latA})) * sin(radians({:latB}))))`,
+				Identifier:   `(6371 * acos(min(1, max(-1, cos(radians({:latA})) * cos(radians({:latB})) * cos(radians({:lonB}) - radians({:lonA})) + sin(radians({:latA})) * sin(radians({:latB}))))))`,
 				Params: map[string]any{
 					"lonA": "null",
 					"latA": 2,
@@ -206,6 +207,59 @@ func TestTokenFunctionsGeoDistanceExec(t *testing.T) {
 	distance := fmt.Sprintf("%.2f", column[0])
 	if distance != expected {
 		t.Fatalf("Expected distance value %s, got %s", expected, distance)
+	}
+}
+
+func TestTokenFunctionsGeoDistanceSelfDistance(t *testing.T) {
+	t.Parallel()
+
+	testDB, err := createTestDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testDB.Close()
+
+	fn, ok := TokenFunctions["geoDistance"]
+	if !ok {
+		t.Fatal("Expected geoDistance token function to be registered.")
+	}
+
+	// the Haversine distance between a point and itself is 0 km;
+	// without clamping the acos() argument it exceeds 1.0 by a rounding
+	// error at many latitudes and SQLite acos() returns NULL out of domain.
+	lats := []string{"8", "12", "45", "82", "-12", "42.7078484153991"}
+
+	for _, lat := range lats {
+		t.Run("lat="+lat, func(t *testing.T) {
+			result, err := fn(
+				func(t fexpr.Token) (*ResolverResult, error) {
+					placeholder := "t" + security.PseudorandomString(5)
+					return &ResolverResult{Identifier: "{:" + placeholder + "}", Params: map[string]any{placeholder: t.Literal}}, nil
+				},
+				fexpr.Token{Literal: "0", Type: fexpr.TokenNumber},
+				fexpr.Token{Literal: lat, Type: fexpr.TokenNumber},
+				fexpr.Token{Literal: "0", Type: fexpr.TokenNumber},
+				fexpr.Token{Literal: lat, Type: fexpr.TokenNumber},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			column := []any{}
+			err = testDB.NewQuery("select " + result.Identifier).Bind(result.Params).Column(&column)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(column) != 1 {
+				t.Fatalf("Expected exactly 1 column value as result, got %v", column)
+			}
+			if column[0] == nil {
+				t.Fatalf("Expected geoDistance to self to be 0, got NULL")
+			}
+			if distance := fmt.Sprintf("%.2f", cast.ToFloat64(column[0])); distance != "0.00" {
+				t.Fatalf("Expected geoDistance to self to be 0.00, got %s", distance)
+			}
+		})
 	}
 }
 

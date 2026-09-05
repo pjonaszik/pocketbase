@@ -171,6 +171,29 @@ func TestJSONFieldValidateValue(t *testing.T) {
 			},
 			false,
 		},
+		{
+			// duplicate object keys are accepted by the jsonv1 validator but
+			// cannot be re-emitted by the jsonv2 response writer, which would
+			// break the collection list/view serialization once persisted.
+			"duplicate object keys",
+			&core.JSONField{Name: "test"},
+			func() *core.Record {
+				record := core.NewRecord(collection)
+				record.SetRaw("test", types.JSONRaw(`{"a":1,"a":2}`))
+				return record
+			},
+			true,
+		},
+		{
+			"nested duplicate object keys",
+			&core.JSONField{Name: "test"},
+			func() *core.Record {
+				record := core.NewRecord(collection)
+				record.SetRaw("test", types.JSONRaw(`{"x":{"a":1,"a":2}}`))
+				return record
+			},
+			true,
+		},
 	}
 
 	for _, s := range scenarios {

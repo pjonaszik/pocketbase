@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -453,6 +454,46 @@ func TestEventJSON(t *testing.T) {
 			e.Request.URL.RawQuery = "fields=a,c" // ensures that the picker is invoked
 			return e.JSON(s.status, s.body)
 		})
+	}
+}
+
+func TestEventJSONInvalidFieldsError(t *testing.T) {
+	// a malformed "fields" query param must surface as a proper JSON API
+	// error via the router ErrorHandler, not as an HTTP 200 with an empty body.
+	r := router.NewRouter(func(w http.ResponseWriter, req *http.Request) (*router.Event, router.EventCleanupFunc) {
+		return &router.Event{Response: w, Request: req}, nil
+	})
+	r.GET("/probe", func(e *router.Event) error {
+		return e.JSON(http.StatusOK, map[string]any{"a": 1, "b": 2, "c": "test"})
+	})
+
+	mux, err := r.BuildMux()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// ":excerpt" without its required max argument is a malformed fields modifier
+	res, err := ts.Client().Get(ts.URL + "/probe?fields=" + url.QueryEscape("*:excerpt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.StatusCode == http.StatusOK {
+		t.Fatalf("expected a non-200 error status for a malformed fields param, got %d with body %q", res.StatusCode, raw)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("expected a parseable JSON error body, got %q (%v)", raw, err)
 	}
 }
 
