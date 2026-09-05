@@ -7,7 +7,7 @@ suite is green on `master`.
 
 Base: upstream `develop` (post v0.40.2). Go 1.27.
 
-## v0.40.2-nexio.1 (2026-09-05)
+## Fork release (2026-09-05)
 
 ### Correctness
 - **search:** clamp the `geoDistance()` `acos()` argument to [-1, 1] so the
