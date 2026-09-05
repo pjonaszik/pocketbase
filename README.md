@@ -10,7 +10,7 @@
 > and ships a small set of fixes on top of it. It is **not** an attempt to compete with PocketBase: we use
 > PocketBase in our own projects and simply maintain the changes we rely on. All credit for PocketBase itself
 > goes to its original author and contributors, and this fork is not affiliated with or endorsed by them.
-> See [CHANGELOG-nexio.md](CHANGELOG-nexio.md) for the changes and the original [LICENSE.md](LICENSE.md) for the terms.
+> See [CHANGELOG-fork.md](CHANGELOG-fork.md) for the changes and the original [LICENSE.md](LICENSE.md) for the terms.
 
 <p align="center">
     <a href="https://github.com/pocketbase/pocketbase/actions/workflows/release.yaml" target="_blank" rel="noopener"><img src="https://github.com/pocketbase/pocketbase/actions/workflows/release.yaml/badge.svg" alt="build" /></a>
@@ -167,5 +167,5 @@ The upstream project and its documentation remain the reference for how PocketBa
 - Upstream source: https://github.com/pocketbase/pocketbase
 - Documentation and examples: https://pocketbase.io/docs
 
-Changes maintained in this fork are listed in [CHANGELOG-nexio.md](CHANGELOG-nexio.md). Each fix is
+Changes maintained in this fork are listed in [CHANGELOG-fork.md](CHANGELOG-fork.md). Each fix is
 written test-first and the full `go test ./...` suite is kept green on `master`.
