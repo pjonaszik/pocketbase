@@ -5,7 +5,7 @@
 </p>
 
 > [!NOTE]
-> **This is a maintained fork of [PocketBase](https://github.com/pocketbase/pocketbase) by Nexio Labs, adapted to our own needs.**
+> **This is a maintained fork of [PocketBase](https://github.com/pocketbase/pocketbase) by pjonaszik, adapted to our own needs.**
 > It is derived from the original PocketBase source (MIT, Copyright (c) 2022 - present, Gani Georgiev)
 > and ships a small set of fixes on top of it. It is **not** an attempt to compete with PocketBase: we use
 > PocketBase in our own projects and simply maintain the changes we rely on. All credit for PocketBase itself

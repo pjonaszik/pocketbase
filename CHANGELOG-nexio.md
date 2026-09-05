@@ -1,4 +1,4 @@
-# Nexio Labs fork changelog
+# pjonaszik fork changelog
 
 Maintained fork of PocketBase. Upstream disabled non-collaborator PRs and does
 not accept these reports, so the fixes below live here. Each fix was written
