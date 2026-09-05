@@ -206,6 +206,39 @@ func TestParseIndexWhereWithParens(t *testing.T) {
 	}
 }
 
+func TestParseIndexMultilineColumnExpression(t *testing.T) {
+	scenarios := []struct {
+		name     string
+		expr     string
+		expected []string // expected column names
+	}{
+		{
+			"expression wrapped across three lines",
+			"CREATE INDEX `i` ON `t` (\n  a || b\n  || c\n)",
+			[]string{"a || b\n  || c"},
+		},
+		{
+			"json_extract wrapped across lines",
+			"CREATE INDEX `i` ON `t` (\n  `col1`,\n  json_extract(\"c\",\n  \"$.a\")\n)",
+			[]string{"col1", "json_extract(\"c\",\n  \"$.a\")"},
+		},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			idx := dbutils.ParseIndex(s.expr)
+			if len(idx.Columns) != len(s.expected) {
+				t.Fatalf("expected %d columns, got %d: %#v", len(s.expected), len(idx.Columns), idx.Columns)
+			}
+			for i, want := range s.expected {
+				if got := idx.Columns[i].Name; got != want {
+					t.Fatalf("column %d: expected %q, got %q", i, want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestIndexBuild(t *testing.T) {
 	scenarios := []struct {
 		name     string
