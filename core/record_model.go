@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -1595,7 +1596,20 @@ func deleteRefRecords(app App, mainRecord *Record, refRecords []*Record, field F
 		return errors.New("only RelationField is supported at the moment, got " + field.Type())
 	}
 
-	for _, refRecord := range refRecords {
+	for _, staleRefRecord := range refRecords {
+		// a nested cascade triggered earlier in this same batch may have
+		// already deleted or modified this referencing record, so reload its
+		// current state instead of trusting the (possibly stale) snapshot:
+		// otherwise we could resurrect a deleted record or overwrite it with a
+		// dangling reference to an already-deleted record.
+		refRecord, err := app.FindRecordById(staleRefRecord.Collection(), staleRefRecord.Id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // already deleted by a nested cascade
+			}
+			return err
+		}
+
 		ids := refRecord.GetStringSlice(relField.Name)
 
 		// unset the record id
