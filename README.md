@@ -4,6 +4,14 @@
     </a>
 </p>
 
+> [!NOTE]
+> **This is a maintained, detached fork of [PocketBase](https://github.com/pocketbase/pocketbase) by Nexio Labs.**
+> It is derived from the original PocketBase source (MIT, Copyright (c) 2022 - present, Gani Georgiev)
+> and ships additional fixes on top of it. All credit for PocketBase itself goes to its original author
+> and contributors. This fork is not affiliated with or endorsed by the upstream project.
+> See [CHANGELOG-nexio.md](CHANGELOG-nexio.md) for the fork's changes and the original
+> [LICENSE.md](LICENSE.md) for the terms.
+
 <p align="center">
     <a href="https://github.com/pocketbase/pocketbase/actions/workflows/release.yaml" target="_blank" rel="noopener"><img src="https://github.com/pocketbase/pocketbase/actions/workflows/release.yaml/badge.svg" alt="build" /></a>
     <a href="https://github.com/pocketbase/pocketbase/releases" target="_blank" rel="noopener"><img src="https://img.shields.io/github/release/pocketbase/pocketbase.svg" alt="Latest releases" /></a>
@@ -143,21 +151,13 @@ You could find more details in the project [Security policy](https://github.com/
 
 ## Contributing
 
-PocketBase is free and open source project licensed under the [MIT License](LICENSE.md).
-You are free to do whatever you want with it, even offering it as a paid service.
+This is a fork of PocketBase, which is free and open source software licensed under the
+[MIT License](LICENSE.md). You are free to do whatever you want with it, even offering it as a paid service.
 
-You could help continuing its development by:
+The upstream project and its documentation remain the reference for how PocketBase works:
 
-- [Contribute to the source code](CONTRIBUTING.md)
-- [Suggest new features and report issues](https://github.com/pocketbase/pocketbase/issues)
+- Upstream source: https://github.com/pocketbase/pocketbase
+- Documentation and examples: https://pocketbase.io/docs
 
-Please refrain creating PRs for _new features_ without previously discussing the implementation details.
-PocketBase has a [roadmap](https://github.com/orgs/pocketbase/projects/2) and I try to work on issues in specific order and such PRs often come in out of nowhere and skew all initial planning with tedious back-and-forth communication.
-
-Don't get upset if I close your PR, even if it is well executed and tested. This doesn't mean that it will never be merged.
-Later we can always refer to it and/or take pieces of your implementation when the time comes to work on the issue (don't worry you'll be credited in the release notes).
-
-> [!IMPORTANT]
-> Due to recent LLM spam, PRs are temporary disabled and only existing collaborators can open a PR.
-> If you stumble on a problem that you want to fix, please consider instead opening an issue or discussion with link to your fork _(if not obvious - LLM contributions are not welcome)_.
-> This status may change in the future in case GitHub finally decide to do something about the constant spam, or when I find time to move the project somewhere else.
+Changes maintained in this fork are listed in [CHANGELOG-nexio.md](CHANGELOG-nexio.md). Each fix is
+written test-first and the full `go test ./...` suite is kept green on `master`.
