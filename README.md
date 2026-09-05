@@ -5,12 +5,12 @@
 </p>
 
 > [!NOTE]
-> **This is a maintained, detached fork of [PocketBase](https://github.com/pocketbase/pocketbase) by Nexio Labs.**
+> **This is a maintained fork of [PocketBase](https://github.com/pocketbase/pocketbase) by Nexio Labs, adapted to our own needs.**
 > It is derived from the original PocketBase source (MIT, Copyright (c) 2022 - present, Gani Georgiev)
-> and ships additional fixes on top of it. All credit for PocketBase itself goes to its original author
-> and contributors. This fork is not affiliated with or endorsed by the upstream project.
-> See [CHANGELOG-nexio.md](CHANGELOG-nexio.md) for the fork's changes and the original
-> [LICENSE.md](LICENSE.md) for the terms.
+> and ships a small set of fixes on top of it. It is **not** an attempt to compete with PocketBase: we use
+> PocketBase in our own projects and simply maintain the changes we rely on. All credit for PocketBase itself
+> goes to its original author and contributors, and this fork is not affiliated with or endorsed by them.
+> See [CHANGELOG-nexio.md](CHANGELOG-nexio.md) for the changes and the original [LICENSE.md](LICENSE.md) for the terms.
 
 <p align="center">
     <a href="https://github.com/pocketbase/pocketbase/actions/workflows/release.yaml" target="_blank" rel="noopener"><img src="https://github.com/pocketbase/pocketbase/actions/workflows/release.yaml/badge.svg" alt="build" /></a>
@@ -148,6 +148,14 @@ Check also the [Testing guide](http://pocketbase.io/docs/testing) to learn how t
 If you discover a security vulnerability within PocketBase, please send an e-mail to **support at pocketbase.io**.
 
 You could find more details in the project [Security policy](https://github.com/pocketbase/pocketbase/security/policy).
+
+## Why this fork
+
+We first raised these fixes upstream, as issues and pull requests. They did not find a path there, so we
+chose to keep the work in this fork rather than lose it, and detached it to maintain it independently. The
+goal is narrow: adapt PocketBase to what we actually run, keep the changes small and focused, and follow the
+upstream project closely so we can re-base as it evolves. PocketBase remains the reference implementation and
+we recommend it for anyone who does not need these specific changes.
 
 ## Contributing
 
