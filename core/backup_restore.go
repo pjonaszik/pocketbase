@@ -145,6 +145,10 @@ func (app *BaseApp) RestoreBackup(ctx context.Context, name string) error {
 
 		oldTempDataDir := filepath.Join(localTempDir, "old_pb_data_"+security.PseudorandomString(8))
 
+		// tracks whether the original pb_data content was already moved out to
+		// the temp location, so a later failure can move it back
+		oldDataMovedOut := false
+
 		replaceErr := e.App.RunInTransaction(func(txApp App) error {
 			return txApp.AuxRunInTransaction(func(txApp App) error {
 				// move the current pb_data content to a special temp location
@@ -153,6 +157,7 @@ func (app *BaseApp) RestoreBackup(ctx context.Context, name string) error {
 				if err := osutils.MoveDirContent(txApp.DataDir(), oldTempDataDir, e.Exclude...); err != nil {
 					return fmt.Errorf("failed to move the current pb_data content to a temp location: %w", err)
 				}
+				oldDataMovedOut = true
 
 				// move the extracted archive content to the app's pb_data
 				if err := osutils.MoveDirContent(extractedDataDir, txApp.DataDir(), e.Exclude...); err != nil {
@@ -163,6 +168,15 @@ func (app *BaseApp) RestoreBackup(ctx context.Context, name string) error {
 			})
 		})
 		if replaceErr != nil {
+			// if the original pb_data was already moved to the temp location but
+			// not replaced (the second move failed and rolled back on its own),
+			// move it back so the failed restore leaves pb_data intact, as
+			// documented ("the dir changes are reverted").
+			if oldDataMovedOut {
+				if revertErr := osutils.MoveDirContent(oldTempDataDir, e.App.DataDir(), e.Exclude...); revertErr != nil {
+					panic(fmt.Errorf("failed to revert pb_data after a failed restore (original error: %w): %w", replaceErr, revertErr))
+				}
+			}
 			return replaceErr
 		}
 
