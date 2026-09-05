@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strconv"
 	"strings"
@@ -169,6 +171,19 @@ func (f *JSONField) ValidateValue(ctx context.Context, app App, record *Record) 
 
 	if is.JSON.Validate(raw) != nil {
 		return validation.NewError("validation_invalid_json", "Must be a valid json value")
+	}
+
+	// additionally reject values that the jsonv2 response writer cannot emit
+	// (ex. duplicate object keys, which the jsonv1 validator above accepts),
+	// otherwise the record would persist but permanently break the collection
+	// list/view serialization. AllowInvalidUTF8 mirrors Record.MarshalJSON so
+	// that only genuinely non-emittable values are rejected here.
+	// (empty values are skipped, consistent with the is.JSON check above)
+	if len(raw) > 0 {
+		var jsonCheck any
+		if err := json.Unmarshal(raw, &jsonCheck, jsontext.AllowInvalidUTF8(true)); err != nil {
+			return validation.NewError("validation_invalid_json", "Must be a valid json value")
+		}
 	}
 
 	rawStr := strings.TrimSpace(raw.String())
