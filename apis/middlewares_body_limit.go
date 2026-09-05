@@ -96,20 +96,35 @@ type limitedReader struct {
 	io.ReadCloser
 	limit     int64
 	totalRead int64
+	exceeded  bool
 }
 
 func (r *limitedReader) Read(b []byte) (int, error) {
-	n, err := r.ReadCloser.Read(b)
-	if err != nil {
-		return n, err
+	// the limit was already exceeded on a previous read: report the error
+	// with n==0 so that readers which ignore an error returned together
+	// with n>0 bytes (ex. the encoding/json/v2 jsontext decoder) still stop
+	// and the rest of the (potentially oversized) body is not consumed
+	if r.exceeded {
+		return 0, ErrRequestEntityTooLarge
 	}
+
+	n, err := r.ReadCloser.Read(b)
 
 	r.totalRead += int64(n)
 	if r.totalRead > r.limit {
-		return n, ErrRequestEntityTooLarge
+		// keep only the bytes up to the limit and defer the sentinel error
+		// to the next Read (with n==0), so no reader can silently ignore it
+		if over := int(r.totalRead - r.limit); over < n {
+			n -= over
+		} else {
+			n = 0
+		}
+		r.totalRead = r.limit
+		r.exceeded = true
+		return n, err
 	}
 
-	return n, nil
+	return n, err
 }
 
 // explicit casts to ensure that the main struct methods will be invoked
