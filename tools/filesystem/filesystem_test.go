@@ -537,6 +537,21 @@ func TestFilesystemServe(t *testing.T) {
 			},
 		},
 		{
+			// css exception with uppercase extension (content type must not depend on ext case)
+			"style.CSS",
+			"test_name",
+			nil,
+			nil,
+			false,
+			map[string]string{
+				"Content-Disposition":     `attachment; filename="test_name"`,
+				"Content-Type":            "text/css",
+				"Content-Length":          "0",
+				"Content-Security-Policy": csp,
+				"Cache-Control":           cacheControl,
+			},
+		},
+		{
 			// js exception
 			"main.js",
 			"test_name.abc",
@@ -879,6 +894,7 @@ func TestFilesystemList(t *testing.T) {
 				"image_!@ special",
 				"image_noext",
 				"style.css",
+				"style.CSS",
 				"main.js",
 				"main.mjs",
 				"dummy.xlsx",
@@ -1232,6 +1248,15 @@ func createTestDir(t *testing.T) string {
 	// css
 	{
 		file, err := os.OpenFile(filepath.Join(dir, "style.css"), os.O_WRONLY|os.O_CREATE, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file.Close()
+	}
+
+	// css with uppercase extension
+	{
+		file, err := os.OpenFile(filepath.Join(dir, "style.CSS"), os.O_WRONLY|os.O_CREATE, 0644)
 		if err != nil {
 			t.Fatal(err)
 		}
