@@ -149,13 +149,35 @@ If you discover a security vulnerability within PocketBase, please send an e-mai
 
 You could find more details in the project [Security policy](https://github.com/pocketbase/pocketbase/security/policy).
 
+## What this fork adds over upstream
+
+### Correctness and availability fixes
+
+A set of test-first fixes on top of upstream (geoDistance self-distance, chunked `BodyLimit` bypass, cron
+`Start`/`Stop` races, self-referential cascade delete, `$http.send` body errors, and more). Each was written
+test-first and the full `go test ./...` suite is kept green on `master`. Full list: [CHANGELOG-fork.md](CHANGELOG-fork.md).
+
+### Multi-realm layer (in progress)
+
+A Keycloak-style realm model, built as a userland plugin (`plugins/realms/`) with no changes to the core:
+
+- an immutable `master` realm seeded at bootstrap, from which the other realms are created;
+- per-realm identity isolation (each realm with its own token secret, OAuth2 providers, and MFA/token policy);
+- structured RBAC (roles and permissions) scoped per realm;
+- a policy ceiling that flows from the master down to child realms, which they inherit and cannot loosen.
+
+**Status: foundation only.** The realms collection, the master seed, and master immutability are delivered.
+The rest (per-realm token signing, RBAC, the policy ceiling, and realm provisioning) is on the roadmap and
+not yet shipped. Do not rely on the realm layer in production yet.
+
 ## Why this fork
 
-We first raised these fixes upstream, as issues and pull requests. They did not find a path there, so we
-chose to keep the work in this fork rather than lose it, and detached it to maintain it independently. The
-goal is narrow: adapt PocketBase to what we actually run, keep the changes small and focused, and follow the
-upstream project closely so we can re-base as it evolves. PocketBase remains the reference implementation and
-we recommend it for anyone who does not need these specific changes.
+We first raised the correctness fixes upstream, as issues and pull requests. They did not find a path there,
+so we kept the work in this fork and detached it to maintain it independently. What began as a small set of
+fixes has since grown its own capabilities that are out of scope for upstream, most notably the multi-realm
+layer above. As a result this fork increasingly diverges from PocketBase and is best understood as a
+derivative distribution rather than a thin patch set. PocketBase remains the reference implementation and the
+place to start for anyone who does not need these additions.
 
 ## Contributing
 
