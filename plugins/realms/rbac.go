@@ -25,8 +25,9 @@ func EnsureRBACCollections(app core.App) error {
 		return err
 	}
 
-	if _, err := app.FindCollectionByNameOrId(CollectionRoles); err != nil {
-		roles := core.NewBaseCollection(CollectionRoles)
+	roles, err := app.FindCollectionByNameOrId(CollectionRoles)
+	if err != nil {
+		roles = core.NewBaseCollection(CollectionRoles)
 		roles.Fields.Add(
 			&core.RelationField{Name: FieldRealm, CollectionId: realmsCol.Id, Required: true, MaxSelect: 1},
 			&core.TextField{Name: FieldKey, Required: true},
@@ -37,13 +38,24 @@ func EnsureRBACCollections(app core.App) error {
 		if err := app.Save(roles); err != nil {
 			return err
 		}
-		// self-relation parents must be added after the collection exists
 		roles, err = app.FindCollectionByNameOrId(CollectionRoles)
 		if err != nil {
 			return err
 		}
+	}
+
+	// ensure the self-relation parents + the unique index exist (self-repairing
+	// on re-run even if a previous partial creation left them out)
+	rolesChanged := false
+	if roles.Fields.GetByName(FieldParents) == nil {
 		roles.Fields.Add(&core.RelationField{Name: FieldParents, CollectionId: roles.Id, MaxSelect: 999})
+		rolesChanged = true
+	}
+	if !hasIndex(roles, "idx_roles_realm_key") {
 		roles.AddIndex("idx_roles_realm_key", true, "realm, key", "")
+		rolesChanged = true
+	}
+	if rolesChanged {
 		if err := app.Save(roles); err != nil {
 			return err
 		}
@@ -54,10 +66,6 @@ func EnsureRBACCollections(app core.App) error {
 		return err
 	}
 	if users.Fields.GetByName(FieldRoles) == nil {
-		roles, err := app.FindCollectionByNameOrId(CollectionRoles)
-		if err != nil {
-			return err
-		}
 		users.Fields.Add(&core.RelationField{Name: FieldRoles, CollectionId: roles.Id, MaxSelect: 999})
 		return app.Save(users)
 	}
@@ -99,6 +107,10 @@ func computeAllPermissions(app core.App, role *core.Record, visited map[string]b
 func bindRBAC(app core.App) {
 	roleGuard := func(e *core.RecordEvent) error {
 		realmID := e.Record.GetString(FieldRealm)
+		if original := e.Record.Original(); original.GetString(FieldRealm) != "" &&
+			realmID != original.GetString(FieldRealm) {
+			return errors.New("a role's realm is immutable")
+		}
 		for _, parentID := range e.Record.GetStringSlice(FieldParents) {
 			parent, err := e.App.FindRecordById(CollectionRoles, parentID)
 			if err != nil {
