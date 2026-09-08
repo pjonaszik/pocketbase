@@ -16,6 +16,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
+	"github.com/pocketbase/pocketbase/tools/router"
 	"github.com/pocketbase/pocketbase/tools/security"
 	"github.com/pocketbase/pocketbase/tools/types"
 )
@@ -222,7 +223,7 @@ func EnsureMaster(app core.App) error {
 func bindMasterGuards(app core.App) {
 	app.OnRecordDelete(CollectionRealms).BindFunc(func(e *core.RecordEvent) error {
 		if e.Record.GetBool("isMaster") {
-			return errors.New("the master realm cannot be deleted")
+			return router.NewBadRequestError("The master realm cannot be deleted.", nil)
 		}
 		return e.Next()
 	})
@@ -231,16 +232,16 @@ func bindMasterGuards(app core.App) {
 		original := e.Record.Original()
 		if original.GetBool("isMaster") {
 			if e.Record.GetString(FieldStatus) != StatusActive {
-				return errors.New("the master realm status is immutable and must stay active")
+				return router.NewBadRequestError("The master realm status is immutable and must stay active.", nil)
 			}
 			if !e.Record.GetBool("isMaster") {
-				return errors.New("the master realm cannot be demoted")
+				return router.NewBadRequestError("The master realm cannot be demoted.", nil)
 			}
 			if e.Record.GetString("slug") != original.GetString("slug") {
-				return errors.New("the master realm slug is immutable")
+				return router.NewBadRequestError("The master realm slug is immutable.", nil)
 			}
 			if e.Record.GetString(FieldAuthSecret) != original.GetString(FieldAuthSecret) {
-				return errors.New("the master realm authSecret is immutable")
+				return router.NewBadRequestError("The master realm signing secret is immutable.", nil)
 			}
 		}
 		return e.Next()
@@ -256,7 +257,7 @@ func bindMasterGuards(app core.App) {
 				return err
 			}
 			if others > 0 {
-				return errors.New("only one master realm is allowed")
+				return router.NewBadRequestError("Only one master realm is allowed.", nil)
 			}
 		}
 		return e.Next()

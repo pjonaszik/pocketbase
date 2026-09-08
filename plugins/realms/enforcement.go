@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // FieldMaxTokenSeconds is the per-realm maximum auth token lifetime, in seconds.
@@ -104,7 +105,7 @@ func enforcePermissionCatalog(app core.App, realmID string, effectivePerms []str
 	}
 	for _, p := range effectivePerms {
 		if !allowed[p] {
-			return fmt.Errorf("permission %q is not in the master realm catalog", p)
+			return router.NewBadRequestError(fmt.Sprintf("Permission %q is not in the master realm catalog.", p), nil)
 		}
 	}
 	return nil

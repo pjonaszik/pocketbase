@@ -9,6 +9,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/list"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // RBAC collections and fields.
@@ -113,7 +114,7 @@ func bindRBAC(app core.App) {
 		realmID := e.Record.GetString(FieldRealm)
 		if original := e.Record.Original(); original.GetString(FieldRealm) != "" &&
 			realmID != original.GetString(FieldRealm) {
-			return errors.New("a role's realm is immutable")
+			return router.NewBadRequestError("A role's realm is immutable.", nil)
 		}
 		for _, parentID := range e.Record.GetStringSlice(FieldParents) {
 			parent, err := e.App.FindRecordById(CollectionRoles, parentID)
@@ -121,7 +122,7 @@ func bindRBAC(app core.App) {
 				return err
 			}
 			if parent.GetString(FieldRealm) != realmID {
-				return errors.New("a role parent must belong to the same realm")
+				return router.NewBadRequestError("A role parent must belong to the same realm.", nil)
 			}
 		}
 		all := computeAllPermissions(e.App, e.Record, map[string]bool{})
@@ -151,7 +152,7 @@ func bindRBAC(app core.App) {
 				return err
 			}
 			if role.GetString(FieldRealm) != realmID {
-				return errors.New("a user role must belong to the user's realm")
+				return router.NewBadRequestError("A user's role must belong to the user's realm.", nil)
 			}
 		}
 		return e.Next()
