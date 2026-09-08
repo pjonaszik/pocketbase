@@ -6,6 +6,7 @@ import (
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/list"
 )
 
 // RBAC collections and fields.
@@ -147,25 +148,36 @@ func bindRBAC(app core.App) {
 	app.OnRecordUpdate(CollectionUsers).BindFunc(userRolesGuard)
 
 	// cascade: when a role changes, re-flatten its direct children so a
-	// permission revoked on a parent propagates to descendants. Re-saving a
-	// child only when its allPermissions actually changes makes this converge
-	// (allPermissions is a monotone union), so cycles/diamonds do not loop.
+	// permission revoked on a parent propagates to descendants.
+	//
+	// Termination is by fixpoint, not monotonicity (a revoke shrinks the set):
+	// computeAllPermissions reads only `permissions` and `parents`, never
+	// `allPermissions`, so during one cascade the dependency graph is frozen;
+	// each node has a single correct value, is set to it the first time it is
+	// recomputed, then compares equal and is never re-saved. Re-saves are thus
+	// bounded by the node count, and cycles/diamonds terminate.
+	//
+	// Note: the cascade is not atomic with the triggering update - each child
+	// Save is its own operation, so a mid-cascade failure can leave later
+	// descendants stale (over-privilege) while the parent save reports an error;
+	// a retry re-runs the idempotent cascade and heals it. Acceptable at the
+	// admin-managed role scale this targets.
 	app.OnRecordAfterUpdateSuccess(CollectionRoles).BindFunc(func(e *core.RecordEvent) error {
 		if err := e.Next(); err != nil {
 			return err
 		}
 
 		changed := e.Record
-		siblings, err := e.App.FindAllRecords(CollectionRoles, dbx.HashExp{FieldRealm: changed.GetString(FieldRealm)})
+		realmRoles, err := e.App.FindAllRecords(CollectionRoles, dbx.HashExp{FieldRealm: changed.GetString(FieldRealm)})
 		if err != nil {
 			return err
 		}
 
-		for _, child := range siblings {
+		for _, child := range realmRoles {
 			if child.Id == changed.Id {
 				continue
 			}
-			if !sliceContains(child.GetStringSlice(FieldParents), changed.Id) {
+			if !list.ExistInSlice(changed.Id, child.GetStringSlice(FieldParents)) {
 				continue
 			}
 			next := computeAllPermissions(e.App, child, map[string]bool{})
@@ -180,15 +192,6 @@ func bindRBAC(app core.App) {
 
 		return nil
 	})
-}
-
-func sliceContains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 func sameStringSet(a, b []string) bool {

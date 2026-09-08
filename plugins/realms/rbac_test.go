@@ -244,3 +244,118 @@ func reloadRole(t *testing.T, app core.App, id string) []string {
 	}
 	return r.GetStringSlice(realms.FieldAllPermissions)
 }
+
+func TestRoleCascadeDiamond(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	a := makeRole(t, app, realm.Id, "a", []string{"a1"}, nil)
+	b := makeRole(t, app, realm.Id, "b", []string{"pb"}, []string{a.Id})
+	c := makeRole(t, app, realm.Id, "c", []string{"pc"}, []string{a.Id})
+	d := makeRole(t, app, realm.Id, "d", []string{"pd"}, []string{b.Id, c.Id})
+
+	if got := reloadRole(t, app, d.Id); !setEq(got, "a1", "pb", "pc", "pd") {
+		t.Fatalf("diamond precondition: expected {a1,pb,pc,pd}, got %v", got)
+	}
+
+	// revoke a1 on the shared root
+	fresh, err := app.FindRecordById(realms.CollectionRoles, a.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.Set(realms.FieldPermissions, []string{})
+	if err := app.Save(fresh); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := reloadRole(t, app, d.Id); !setEq(got, "pb", "pc", "pd") {
+		t.Fatalf("diamond after revoke: expected {pb,pc,pd}, got %v", got)
+	}
+}
+
+func TestRoleCascadeCycleResave(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	a := makeRole(t, app, realm.Id, "a", []string{"pa"}, nil)
+	b := makeRole(t, app, realm.Id, "b", []string{"pb"}, []string{a.Id})
+
+	// close the cycle a <-> b
+	a2, err := app.FindRecordById(realms.CollectionRoles, a.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2.Set(realms.FieldParents, []string{b.Id})
+	if err := app.Save(a2); err != nil {
+		t.Fatal(err)
+	}
+
+	// add a permission on a; it must propagate into b through the cycle, no hang
+	a3, err := app.FindRecordById(realms.CollectionRoles, a.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a3.Set(realms.FieldPermissions, []string{"pa", "x"})
+	if err := app.Save(a3); err != nil {
+		t.Fatalf("re-saving inside a cycle must not hang or error: %v", err)
+	}
+	if got := reloadRole(t, app, b.Id); !setEq(got, "pa", "pb", "x") {
+		t.Fatalf("cycle propagation: expected b={pa,pb,x}, got %v", got)
+	}
+}
+
+func TestRoleCascadeOnParentDelete(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	gp := makeRole(t, app, realm.Id, "gp", []string{"a"}, nil)
+	p := makeRole(t, app, realm.Id, "p", []string{"b"}, []string{gp.Id})
+	gc := makeRole(t, app, realm.Id, "gc", []string{"c"}, []string{p.Id})
+
+	if got := reloadRole(t, app, gc.Id); !setEq(got, "a", "b", "c") {
+		t.Fatalf("precondition: expected {a,b,c}, got %v", got)
+	}
+
+	// deleting the grandparent must drop its permission from descendants
+	if err := app.Delete(gp); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloadRole(t, app, p.Id); !setEq(got, "b") {
+		t.Fatalf("p after gp delete: expected {b}, got %v", got)
+	}
+	if got := reloadRole(t, app, gc.Id); !setEq(got, "b", "c") {
+		t.Fatalf("gc after gp delete: expected {b,c}, got %v (fail-open: deleted parent perm survived)", got)
+	}
+}
+
+func TestRoleCascadeMultiChild(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	parent := makeRole(t, app, realm.Id, "parent", []string{"a", "b"}, nil)
+	c1 := makeRole(t, app, realm.Id, "c1", []string{"p1"}, []string{parent.Id})
+	c2 := makeRole(t, app, realm.Id, "c2", []string{"p2"}, []string{parent.Id})
+	c3 := makeRole(t, app, realm.Id, "c3", []string{"p3"}, []string{parent.Id})
+
+	fresh, err := app.FindRecordById(realms.CollectionRoles, parent.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.Set(realms.FieldPermissions, []string{"a"}) // revoke b
+	if err := app.Save(fresh); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		id   string
+		want []string
+	}{
+		{c1.Id, []string{"a", "p1"}},
+		{c2.Id, []string{"a", "p2"}},
+		{c3.Id, []string{"a", "p3"}},
+	} {
+		if got := reloadRole(t, app, tc.id); !setEq(got, tc.want...) {
+			t.Fatalf("multi-child fan-out: role %s expected %v, got %v", tc.id, tc.want, got)
+		}
+	}
+}
