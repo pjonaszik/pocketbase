@@ -203,3 +203,44 @@ func TestEnsureRBACCollectionsIdempotent(t *testing.T) {
 		t.Fatal("parents self-relation must survive a re-run")
 	}
 }
+
+func TestRoleParentChangeCascadesToDescendants(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	parent := makeRole(t, app, realm.Id, "parent", []string{"a", "b"}, nil)
+	child := makeRole(t, app, realm.Id, "child", []string{"c"}, []string{parent.Id})
+	grandchild := makeRole(t, app, realm.Id, "grandchild", []string{"d"}, []string{child.Id})
+
+	// sanity: grandchild starts with {a,b,c,d}
+	if got := reloadRole(t, app, grandchild.Id); !setEq(got, "a", "b", "c", "d") {
+		t.Fatalf("precondition: expected {a,b,c,d}, got %v", got)
+	}
+
+	// REVOKE permission "b" on the parent
+	fresh, err := app.FindRecordById(realms.CollectionRoles, parent.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.Set(realms.FieldPermissions, []string{"a"})
+	if err := app.Save(fresh); err != nil {
+		t.Fatal(err)
+	}
+
+	// the revocation must propagate: child -> {a,c}, grandchild -> {a,c,d}
+	if got := reloadRole(t, app, child.Id); !setEq(got, "a", "c") {
+		t.Fatalf("child allPermissions after revoke: expected {a,c}, got %v", got)
+	}
+	if got := reloadRole(t, app, grandchild.Id); !setEq(got, "a", "c", "d") {
+		t.Fatalf("grandchild allPermissions after revoke: expected {a,c,d}, got %v (fail-open: revoked perm survived)", got)
+	}
+}
+
+func reloadRole(t *testing.T, app core.App, id string) []string {
+	t.Helper()
+	r, err := app.FindRecordById(realms.CollectionRoles, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r.GetStringSlice(realms.FieldAllPermissions)
+}

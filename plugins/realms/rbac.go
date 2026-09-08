@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -144,4 +145,64 @@ func bindRBAC(app core.App) {
 	}
 	app.OnRecordCreate(CollectionUsers).BindFunc(userRolesGuard)
 	app.OnRecordUpdate(CollectionUsers).BindFunc(userRolesGuard)
+
+	// cascade: when a role changes, re-flatten its direct children so a
+	// permission revoked on a parent propagates to descendants. Re-saving a
+	// child only when its allPermissions actually changes makes this converge
+	// (allPermissions is a monotone union), so cycles/diamonds do not loop.
+	app.OnRecordAfterUpdateSuccess(CollectionRoles).BindFunc(func(e *core.RecordEvent) error {
+		if err := e.Next(); err != nil {
+			return err
+		}
+
+		changed := e.Record
+		siblings, err := e.App.FindAllRecords(CollectionRoles, dbx.HashExp{FieldRealm: changed.GetString(FieldRealm)})
+		if err != nil {
+			return err
+		}
+
+		for _, child := range siblings {
+			if child.Id == changed.Id {
+				continue
+			}
+			if !sliceContains(child.GetStringSlice(FieldParents), changed.Id) {
+				continue
+			}
+			next := computeAllPermissions(e.App, child, map[string]bool{})
+			if !sameStringSet(child.GetStringSlice(FieldAllPermissions), next) {
+				// re-save triggers roleGuard (re-flatten) and this cascade for
+				// the grandchildren; the change-guard above stops it converging
+				if err := e.App.Save(child); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+func sliceContains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := map[string]bool{}
+	for _, x := range a {
+		m[x] = true
+	}
+	for _, x := range b {
+		if !m[x] {
+			return false
+		}
+	}
+	return true
 }
