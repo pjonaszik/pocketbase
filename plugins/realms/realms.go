@@ -23,6 +23,9 @@ const CollectionRealms = "realms"
 // MasterSlug is the stable slug of the unique master realm.
 const MasterSlug = "master"
 
+// FieldAuthSecret is the per-realm token signing secret field.
+const FieldAuthSecret = "authSecret"
+
 // MustRegister is like Register but panics on error.
 func MustRegister(app core.App) {
 	if err := Register(app); err != nil {
@@ -61,7 +64,7 @@ func Register(app core.App) error {
 func bindRealmTokens(app core.App) {
 	app.OnRecordAuthRequest(CollectionUsers).BindFunc(func(e *core.RecordAuthRequestEvent) error {
 		if e.Record != nil && e.Record.GetString(FieldRealm) != "" {
-			tok, err := SignRealmToken(e.App, e.Record)
+			tok, err := ReSignRealmToken(e.App, e.Record, e.Token)
 			if err != nil {
 				return err
 			}
@@ -82,7 +85,7 @@ func bindRealmTokens(app core.App) {
 func RealmAuthMiddleware(app core.App) *hook.Handler[*core.RequestEvent] {
 	return &hook.Handler[*core.RequestEvent]{
 		Id:       "realmsLoadAuthToken",
-		Priority: apis.DefaultLoadAuthTokenMiddlewarePriority - 10,
+		Priority: apis.DefaultLoadAuthTokenMiddlewarePriority - 1,
 		Func: func(e *core.RequestEvent) error {
 			if e.Auth == nil {
 				if token := realmBearerToken(e); token != "" {
@@ -121,7 +124,7 @@ func EnsureRealmsCollection(app core.App) error {
 		&core.TextField{Name: "name"},
 		&core.BoolField{Name: "isMaster"},
 		&core.SelectField{Name: "status", Values: []string{"active", "disabled"}, MaxSelect: 1, Required: true},
-		&core.TextField{Name: "authSecret", Required: true, Hidden: true, Min: 30},
+		&core.TextField{Name: FieldAuthSecret, Required: true, Hidden: true, Min: 30},
 	)
 	col.AddIndex("idx_realms_slug", true, "slug", "")
 
@@ -148,7 +151,7 @@ func EnsureMaster(app core.App) error {
 	r.Set("name", "Master")
 	r.Set("isMaster", true)
 	r.Set("status", "active")
-	r.Set("authSecret", security.RandomString(50))
+	r.Set(FieldAuthSecret, security.RandomString(50))
 
 	return app.Save(r)
 }
@@ -176,7 +179,7 @@ func bindMasterGuards(app core.App) {
 			if e.Record.GetString("slug") != original.GetString("slug") {
 				return errors.New("the master realm slug is immutable")
 			}
-			if e.Record.GetString("authSecret") != original.GetString("authSecret") {
+			if e.Record.GetString(FieldAuthSecret) != original.GetString(FieldAuthSecret) {
 				return errors.New("the master realm authSecret is immutable")
 			}
 		}

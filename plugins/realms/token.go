@@ -2,7 +2,6 @@ package realms
 
 import (
 	"errors"
-	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pocketbase/pocketbase/core"
@@ -12,44 +11,51 @@ import (
 // ClaimRealm is the custom JWT claim carrying the user's realm id.
 const ClaimRealm = "realm"
 
-// SignRealmToken issues an auth token for the record signed with its realm's
-// own secret (record.TokenKey() + realm.authSecret) and carrying the realm
-// claim, so the token is cryptographically bound to a single realm.
-//
-// A record without a realm falls back to the standard PocketBase auth token.
-func SignRealmToken(app core.App, record *core.Record) (string, error) {
+// ReSignRealmToken re-signs a stock-issued auth token with the user's realm
+// secret and a realm claim. A non-realm user or a non-auth token is returned
+// unchanged.
+func ReSignRealmToken(app core.App, record *core.Record, stockToken string) (string, error) {
 	realmID := record.GetString(FieldRealm)
 	if realmID == "" {
-		return record.NewAuthToken()
+		return stockToken, nil
+	}
+
+	// preserve the stock token's claims (type, exp, refreshable, ...) so that
+	// re-signing does not change token semantics; only auth tokens are re-signed
+	claims, err := security.ParseUnverifiedJWT(stockToken)
+	if err != nil {
+		return "", err
+	}
+	if t, _ := claims[core.TokenClaimType].(string); t != core.TokenTypeAuth {
+		return stockToken, nil
 	}
 
 	realm, err := app.FindRecordById(CollectionRealms, realmID)
 	if err != nil {
 		return "", err
 	}
-	secret := realm.GetString("authSecret")
+	secret := realm.GetString(FieldAuthSecret)
 
-	duration := time.Duration(record.Collection().AuthToken.Duration) * time.Second
-	claims := jwt.MapClaims{
-		core.TokenClaimType:         core.TokenTypeAuth,
-		core.TokenClaimId:           record.Id,
-		core.TokenClaimCollectionId: record.Collection().Id,
-		core.TokenClaimRefreshable:  true,
-		ClaimRealm:                  realmID,
+	key := record.TokenKey() + secret
+	if key == "" {
+		return "", errors.New("realm token signing key is empty")
 	}
 
-	return security.NewJWT(claims, record.TokenKey()+secret, duration)
+	claims[ClaimRealm] = realmID
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(key))
 }
 
-// VerifyRealmToken validates a realm-signed token and returns the auth record.
-// It resolves the realm from the token claim, verifies the HS256 signature with
-// the realm's secret, and cross-checks that the token realm matches the user's
-// realm. It returns an error for a non-realm token so the caller can fall back
-// to the stock verifier.
+// VerifyRealmToken validates a realm-signed auth token and returns the auth
+// record. It rejects non-auth token types, resolves the realm from the claim,
+// verifies the HS256 signature with the realm secret, asserts the record lives
+// in the users collection, and cross-checks the token realm against the user's.
 func VerifyRealmToken(app core.App, token string) (*core.Record, error) {
 	claims, err := security.ParseUnverifiedJWT(token)
 	if err != nil {
 		return nil, err
+	}
+	if t, _ := claims[core.TokenClaimType].(string); t != core.TokenTypeAuth {
+		return nil, errors.New("not an auth token")
 	}
 
 	realmID, _ := claims[ClaimRealm].(string)
@@ -66,11 +72,14 @@ func VerifyRealmToken(app core.App, token string) (*core.Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	secret := realm.GetString("authSecret")
+	secret := realm.GetString(FieldAuthSecret)
 
 	user, err := app.FindRecordById(collectionID, userID)
 	if err != nil {
 		return nil, err
+	}
+	if user.Collection().Name != CollectionUsers {
+		return nil, errors.New("realm token collection mismatch")
 	}
 
 	if _, err := security.ParseJWT(token, user.TokenKey()+secret); err != nil {

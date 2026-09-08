@@ -31,14 +31,24 @@ func setupToken(t *testing.T) (*tests.TestApp, *core.Record, *core.Record) {
 	return app, realm, u
 }
 
+func realmToken(t *testing.T, app core.App, user *core.Record) string {
+	t.Helper()
+	stock, err := user.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := realms.ReSignRealmToken(app, user, stock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
 func TestSignRealmTokenUsesRealmSecret(t *testing.T) {
 	app, realm, user := setupToken(t)
 	defer app.Cleanup()
 
-	token, err := realms.SignRealmToken(app, user)
-	if err != nil {
-		t.Fatalf("SignRealmToken: %v", err)
-	}
+	token := realmToken(t, app, user)
 
 	// it must verify with the realm secret...
 	if _, err := security.ParseJWT(token, user.TokenKey()+realm.GetString("authSecret")); err != nil {
@@ -62,10 +72,7 @@ func TestVerifyRealmTokenRoundTrip(t *testing.T) {
 	app, _, user := setupToken(t)
 	defer app.Cleanup()
 
-	token, err := realms.SignRealmToken(app, user)
-	if err != nil {
-		t.Fatal(err)
-	}
+	token := realmToken(t, app, user)
 	got, err := realms.VerifyRealmToken(app, token)
 	if err != nil {
 		t.Fatalf("VerifyRealmToken: %v", err)
@@ -121,10 +128,7 @@ func TestRealmTokenAuthenticatesOverHTTP(t *testing.T) {
 	app, _, user := setupToken(t)
 	defer app.Cleanup()
 
-	token, err := realms.SignRealmToken(app, user)
-	if err != nil {
-		t.Fatal(err)
-	}
+	token := realmToken(t, app, user)
 
 	pbRouter, err := apis.NewRouter(app)
 	if err != nil {
@@ -158,5 +162,48 @@ func TestRealmTokenAuthenticatesOverHTTP(t *testing.T) {
 	mux.ServeHTTP(rec2, req2)
 	if rec2.Code == 200 {
 		t.Fatalf("expected a garbage token to not authenticate, got %d %q", rec2.Code, rec2.Body.String())
+	}
+}
+
+func TestReSignPreservesRefreshable(t *testing.T) {
+	app, _, user := setupToken(t)
+	defer app.Cleanup()
+
+	// an impersonate-style static (non-refreshable) token must stay
+	// non-refreshable after realm re-signing
+	staticTok, err := user.NewStaticAuthToken(time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realmTok, err := realms.ReSignRealmToken(app, user, staticTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := security.ParseUnverifiedJWT(realmTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := claims[core.TokenClaimRefreshable].(bool); r {
+		t.Fatal("expected a re-signed static token to stay non-refreshable, got refreshable=true")
+	}
+}
+
+func TestVerifyRealmTokenRejectsNonAuthType(t *testing.T) {
+	app, realm, user := setupToken(t)
+	defer app.Cleanup()
+
+	// a non-auth token (e.g. verification) carrying a realm claim and signed
+	// with the realm secret must still be rejected
+	forged, err := security.NewJWT(map[string]any{
+		core.TokenClaimId:           user.Id,
+		core.TokenClaimCollectionId: user.Collection().Id,
+		core.TokenClaimType:         "verification",
+		realms.ClaimRealm:           realm.Id,
+	}, user.TokenKey()+realm.GetString("authSecret"), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := realms.VerifyRealmToken(app, forged); err == nil {
+		t.Fatal("expected a non-auth token to be rejected")
 	}
 }
