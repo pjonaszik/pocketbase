@@ -187,6 +187,36 @@ binary seeds the master realm and the realm collections on first boot.
 **Not yet shipped:** per-realm OAuth2 providers, master-enforced MFA, and an Admin UI realm switcher. These
 are on the roadmap and called out here rather than implied by the list above.
 
+#### First run
+
+The layer is registered in `examples/base`, so the standard build runs it:
+
+```sh
+cd examples/base
+CGO_ENABLED=0 go build -o base .
+```
+
+Create the first superuser from the **CLI** (this needs no installer link), then start the server and log in:
+
+```sh
+./base superuser upsert admin@example.com 'a-strong-password'
+./base serve --http 127.0.0.1:8090
+```
+
+Open the Admin UI URL it prints and log in with those credentials. On first boot the layer seeds the
+immutable `master` realm and the `realms` and `roles` collections; from there you provision child realms with
+`POST /api/realms` (callable only from the master realm, with the `realm:manage` permission).
+
+Notes:
+
+- The address passed to `--http` is `HOST:PORT`, e.g. `127.0.0.1:8090` (a colon before the port). Plain
+  `./base serve` defaults to `127.0.0.1:8090`.
+- Creating the first superuser through the web `/_/#/pbinstall/<token>` link (the URL `serve` prints) works
+  too, but that token is short-lived and bound to the running server and is consumed once a superuser exists;
+  a stale or reused link fails with `Only superusers can perform this action`. The CLI path above avoids it.
+- If you pass a custom data directory to `serve` (`--dir /path/to/pb_data`), pass the **same** `--dir` to
+  `superuser upsert`, or the two commands write to different databases.
+
 ## Why this fork
 
 We first raised the correctness fixes upstream, as issues and pull requests. They did not find a path there,
