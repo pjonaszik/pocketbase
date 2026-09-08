@@ -149,13 +149,82 @@ If you discover a security vulnerability within PocketBase, please send an e-mai
 
 You could find more details in the project [Security policy](https://github.com/pocketbase/pocketbase/security/policy).
 
+## What this fork adds over upstream
+
+### Correctness and availability fixes
+
+A set of test-first fixes on top of upstream (geoDistance self-distance, chunked `BodyLimit` bypass, cron
+`Start`/`Stop` races, self-referential cascade delete, `$http.send` body errors, and more). Each was written
+test-first and the full `go test ./...` suite is kept green on `master`. Full list: [CHANGELOG-fork.md](CHANGELOG-fork.md).
+
+### Multi-realm layer
+
+A Keycloak-style realm model, built entirely as a userland plugin (`plugins/realms/`) with **no changes to
+the PocketBase core**. It turns a single PocketBase instance into a set of isolated realms governed by one
+master:
+
+- an immutable **`master` realm** seeded at bootstrap: it can never be deleted, disabled, demoted, renamed,
+  or duplicated, and it is the only realm from which other realms are provisioned;
+- **per-realm identity isolation**: each realm has its own token signing secret, users are unique per
+  `(realm, identity)`, and a token minted for one realm does not authenticate against another;
+- **realm-scoped login**: password auth is resolved within a realm, so the same identity can exist
+  independently in several realms;
+- **structured RBAC per realm**: roles carry permissions and may inherit from parent roles in the same realm;
+  the effective permission set is flattened and denormalized, and a revoke on a parent **cascades** to
+  descendants;
+- **permission-based authorization**: a `RequirePermission` route middleware gates endpoints on a caller's
+  flattened permissions (superusers bypass);
+- **a control plane**: `POST /api/realms`, callable only from the master realm and only with the
+  `realm:manage` permission, provisions a new child realm with its own signing secret;
+- **a master policy ceiling that child realms inherit and cannot loosen**: the master caps token lifetime
+  (`maxTokenSeconds`, tightest-wins so a child may be stricter but never looser) and defines the permission
+  catalog (a child realm's roles may only grant permissions the master has sanctioned).
+
+Every behavior above is covered test-first (red seen before green, non-vacuity proven by neutering) and the
+full plugin suite runs green under `-race`. The layer is registered in `examples/base`, so the prebuilt
+binary seeds the master realm and the realm collections on first boot.
+
+**Not yet shipped:** per-realm OAuth2 providers, master-enforced MFA, and an Admin UI realm switcher. These
+are on the roadmap and called out here rather than implied by the list above.
+
+#### First run
+
+The layer is registered in `examples/base`, so the standard build runs it:
+
+```sh
+cd examples/base
+CGO_ENABLED=0 go build -o base .
+```
+
+Create the first superuser from the **CLI** (this needs no installer link), then start the server and log in:
+
+```sh
+./base superuser upsert admin@example.com 'a-strong-password'
+./base serve --http 127.0.0.1:8090
+```
+
+Open the Admin UI URL it prints and log in with those credentials. On first boot the layer seeds the
+immutable `master` realm and the `realms` and `roles` collections; from there you provision child realms with
+`POST /api/realms` (callable only from the master realm, with the `realm:manage` permission).
+
+Notes:
+
+- The address passed to `--http` is `HOST:PORT`, e.g. `127.0.0.1:8090` (a colon before the port). Plain
+  `./base serve` defaults to `127.0.0.1:8090`.
+- Creating the first superuser through the web `/_/#/pbinstall/<token>` link (the URL `serve` prints) works
+  too, but that token is short-lived and bound to the running server and is consumed once a superuser exists;
+  a stale or reused link fails with `Only superusers can perform this action`. The CLI path above avoids it.
+- If you pass a custom data directory to `serve` (`--dir /path/to/pb_data`), pass the **same** `--dir` to
+  `superuser upsert`, or the two commands write to different databases.
+
 ## Why this fork
 
-We first raised these fixes upstream, as issues and pull requests. They did not find a path there, so we
-chose to keep the work in this fork rather than lose it, and detached it to maintain it independently. The
-goal is narrow: adapt PocketBase to what we actually run, keep the changes small and focused, and follow the
-upstream project closely so we can re-base as it evolves. PocketBase remains the reference implementation and
-we recommend it for anyone who does not need these specific changes.
+We first raised the correctness fixes upstream, as issues and pull requests. They did not find a path there,
+so we kept the work in this fork and detached it to maintain it independently. What began as a small set of
+fixes has since grown its own capabilities that are out of scope for upstream, most notably the multi-realm
+layer above. As a result this fork increasingly diverges from PocketBase and is best understood as a
+derivative distribution rather than a thin patch set. PocketBase remains the reference implementation and the
+place to start for anyone who does not need these additions.
 
 ## Contributing
 

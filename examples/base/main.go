@@ -12,6 +12,7 @@ import (
 	"github.com/pocketbase/pocketbase/plugins/ghupdate"
 	"github.com/pocketbase/pocketbase/plugins/jsvm"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
+	"github.com/pocketbase/pocketbase/plugins/realms"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/osutils"
 )
@@ -102,6 +103,10 @@ func main() {
 
 	// GitHub selfupdate
 	ghupdate.MustRegister(app, app.RootCmd, ghupdate.Config{})
+
+	// Keycloak-style multi-realm layer (master realm, per-realm identity and
+	// tokens, RBAC, control plane, master policy ceiling)
+	realms.MustRegister(app)
 
 	// static route to serves files from the provided public dir
 	// (if publicDir exists and the route path is not already defined)
