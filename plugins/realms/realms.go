@@ -26,6 +26,13 @@ const MasterSlug = "master"
 // FieldAuthSecret is the per-realm token signing secret field.
 const FieldAuthSecret = "authSecret"
 
+// FieldStatus and the realm status values.
+const (
+	FieldStatus    = "status"
+	StatusActive   = "active"
+	StatusDisabled = "disabled"
+)
+
 // MustRegister is like Register but panics on error.
 func MustRegister(app core.App) {
 	if err := Register(app); err != nil {
@@ -64,12 +71,27 @@ func Register(app core.App) error {
 // once e.Auth is set). Non-realm users and superusers keep the stock behavior.
 func bindRealmTokens(app core.App) {
 	app.OnRecordAuthRequest(CollectionUsers).BindFunc(func(e *core.RecordAuthRequestEvent) error {
-		if e.Record != nil && e.Record.GetString(FieldRealm) != "" {
-			tok, err := ReSignRealmToken(e.App, e.Record, e.Token)
-			if err != nil {
-				return err
+		if e.Record != nil {
+			if realmID := e.Record.GetString(FieldRealm); realmID != "" {
+				realm, err := e.App.FindRecordById(CollectionRealms, realmID)
+				if err != nil {
+					return err
+				}
+				// gate every login path: the realm must be active
+				if realm.GetString(FieldStatus) != StatusActive {
+					return e.ForbiddenError("The realm is not active.", nil)
+				}
+				// gate: an explicit realm param must match the account realm,
+				// so a realm login form cannot be tricked into another realm
+				if reqRealm := e.Request.URL.Query().Get("realm"); reqRealm != "" && reqRealm != realm.GetString("slug") {
+					return e.ForbiddenError("The requested realm does not match the account realm.", nil)
+				}
+				tok, err := ReSignRealmToken(e.App, e.Record, e.Token)
+				if err != nil {
+					return err
+				}
+				e.Token = tok
 			}
-			e.Token = tok
 		}
 		return e.Next()
 	})
@@ -124,7 +146,7 @@ func EnsureRealmsCollection(app core.App) error {
 		&core.TextField{Name: "slug", Required: true},
 		&core.TextField{Name: "name"},
 		&core.BoolField{Name: "isMaster"},
-		&core.SelectField{Name: "status", Values: []string{"active", "disabled"}, MaxSelect: 1, Required: true},
+		&core.SelectField{Name: "status", Values: []string{StatusActive, StatusDisabled}, MaxSelect: 1, Required: true},
 		&core.TextField{Name: FieldAuthSecret, Required: true, Hidden: true, Min: 30},
 	)
 	col.AddIndex("idx_realms_slug", true, "slug", "")
@@ -151,7 +173,7 @@ func EnsureMaster(app core.App) error {
 	r.Set("slug", MasterSlug)
 	r.Set("name", "Master")
 	r.Set("isMaster", true)
-	r.Set("status", "active")
+	r.Set(FieldStatus, StatusActive)
 	r.Set(FieldAuthSecret, security.RandomString(50))
 
 	return app.Save(r)
@@ -171,7 +193,7 @@ func bindMasterGuards(app core.App) {
 	app.OnRecordUpdate(CollectionRealms).BindFunc(func(e *core.RecordEvent) error {
 		original := e.Record.Original()
 		if original.GetBool("isMaster") {
-			if e.Record.GetString("status") != "active" {
+			if e.Record.GetString(FieldStatus) != StatusActive {
 				return errors.New("the master realm status is immutable and must stay active")
 			}
 			if !e.Record.GetBool("isMaster") {

@@ -1,6 +1,9 @@
 package realms
 
 import (
+	"database/sql"
+	"errors"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -33,8 +36,11 @@ func bindRealmLogin(app core.App) {
 	app.OnRecordAuthWithPasswordRequest(CollectionUsers).BindFunc(func(e *core.RecordAuthWithPasswordRequestEvent) error {
 		if e.Record == nil {
 			if realmSlug := e.Request.URL.Query().Get("realm"); realmSlug != "" {
-				if user, err := FindRealmUserByIdentity(e.App, realmSlug, e.Identity); err == nil {
+				user, err := FindRealmUserByIdentity(e.App, realmSlug, e.Identity)
+				if err == nil {
 					e.Record = user
+				} else if !errors.Is(err, sql.ErrNoRows) {
+					return err // surface real errors instead of masking them as invalid credentials
 				}
 			}
 		}
