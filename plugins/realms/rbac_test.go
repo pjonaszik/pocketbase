@@ -1,8 +1,10 @@
 package realms_test
 
 import (
+	"net/http/httptest"
 	"testing"
 
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/plugins/realms"
 	"github.com/pocketbase/pocketbase/tests"
@@ -357,5 +359,94 @@ func TestRoleCascadeMultiChild(t *testing.T) {
 		if got := reloadRole(t, app, tc.id); !setEq(got, tc.want...) {
 			t.Fatalf("multi-child fan-out: role %s expected %v, got %v", tc.id, tc.want, got)
 		}
+	}
+}
+
+func realmUser(t *testing.T, app core.App, realmID, identity string, roleIDs []string) *core.Record {
+	t.Helper()
+	col, err := app.FindCollectionByNameOrId(realms.CollectionUsers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := core.NewRecord(col)
+	u.Set(realms.FieldRealm, realmID)
+	u.Set(realms.FieldIdentity, identity)
+	u.SetPassword("password1234")
+	if roleIDs != nil {
+		u.Set(realms.FieldRoles, roleIDs)
+	}
+	if err := app.Save(u); err != nil {
+		t.Fatalf("save user %q: %v", identity, err)
+	}
+	return u
+}
+
+func TestUserHasPermission(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	base := makeRole(t, app, realm.Id, "base", []string{"posts.read"}, nil)
+	writer := makeRole(t, app, realm.Id, "writer", []string{"posts.write"}, []string{base.Id})
+
+	withRole := realmUser(t, app, realm.Id, "w@example.com", []string{writer.Id})
+	noRole := realmUser(t, app, realm.Id, "n@example.com", nil)
+
+	// direct permission
+	if ok, _ := realms.UserHasPermission(app, withRole, "posts.write"); !ok {
+		t.Fatal("expected the writer to have posts.write")
+	}
+	// inherited permission
+	if ok, _ := realms.UserHasPermission(app, withRole, "posts.read"); !ok {
+		t.Fatal("expected the writer to inherit posts.read")
+	}
+	// permission it does not have
+	if ok, _ := realms.UserHasPermission(app, withRole, "posts.delete"); ok {
+		t.Fatal("did not expect posts.delete")
+	}
+	// user without roles
+	if ok, _ := realms.UserHasPermission(app, noRole, "posts.read"); ok {
+		t.Fatal("a user without roles must have no permission")
+	}
+}
+
+func TestRequirePermissionOverHTTP(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	writer := makeRole(t, app, realm.Id, "writer", []string{"posts.write"}, nil)
+	privileged := realmUser(t, app, realm.Id, "priv@example.com", []string{writer.Id})
+	plain := realmUser(t, app, realm.Id, "plain@example.com", nil)
+
+	pbRouter, err := apis.NewRouter(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pbRouter.Bind(realms.RealmAuthMiddleware(app))
+	pbRouter.GET("/needs-write", func(e *core.RequestEvent) error {
+		return e.String(200, "ok")
+	}).Bind(realms.RequirePermission("posts.write"))
+	mux, err := pbRouter.BuildMux()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	call := func(token string) int {
+		req := httptest.NewRequest("GET", "/needs-write", nil)
+		if token != "" {
+			req.Header.Set("Authorization", token)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if code := call(realmToken(t, app, privileged)); code != 200 {
+		t.Fatalf("privileged user: expected 200, got %d", code)
+	}
+	if code := call(realmToken(t, app, plain)); code != 403 {
+		t.Fatalf("user without permission: expected 403, got %d", code)
+	}
+	if code := call(""); code != 401 {
+		t.Fatalf("anonymous: expected 401, got %d", code)
 	}
 }

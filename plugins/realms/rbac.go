@@ -6,6 +6,7 @@ import (
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/list"
 )
 
@@ -208,4 +209,39 @@ func sameStringSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// UserHasPermission reports whether any of the user's roles grants the given
+// permission (via the denormalized, inheritance-flattened allPermissions).
+func UserHasPermission(app core.App, user *core.Record, permission string) (bool, error) {
+	for _, roleID := range user.GetStringSlice(FieldRoles) {
+		role, err := app.FindRecordById(CollectionRoles, roleID)
+		if err != nil {
+			continue // a dangling role reference grants nothing
+		}
+		if list.ExistInSlice(permission, role.GetStringSlice(FieldAllPermissions)) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// RequirePermission is a route middleware that allows the request only when the
+// authenticated record holds the given permission through its realm roles.
+func RequirePermission(permission string) *hook.Handler[*core.RequestEvent] {
+	return &hook.Handler[*core.RequestEvent]{
+		Func: func(e *core.RequestEvent) error {
+			if e.Auth == nil {
+				return e.UnauthorizedError("The request requires a valid authorization token.", nil)
+			}
+			ok, err := UserHasPermission(e.App, e.Auth, permission)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return e.ForbiddenError("You do not have the required permission.", nil)
+			}
+			return e.Next()
+		},
+	}
 }
