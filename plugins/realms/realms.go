@@ -65,6 +65,7 @@ func Register(app core.App) error {
 	bindRealmTokens(app)
 	bindRealmLogin(app)
 	bindRBAC(app)
+	bindControlPlane(app)
 
 	return nil
 }
