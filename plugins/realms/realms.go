@@ -56,11 +56,15 @@ func Register(app core.App) error {
 		if err := EnsureMaster(e.App); err != nil {
 			return err
 		}
-		return EnsureUsersRealmFields(e.App)
+		if err := EnsureUsersRealmFields(e.App); err != nil {
+			return err
+		}
+		return EnsureRBACCollections(e.App)
 	})
 
 	bindRealmTokens(app)
 	bindRealmLogin(app)
+	bindRBAC(app)
 
 	return nil
 }
