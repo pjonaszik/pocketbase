@@ -158,6 +158,7 @@ func EnsureRealmsCollection(app core.App) error {
 		&core.SelectField{Name: "status", Values: []string{StatusActive, StatusDisabled}, MaxSelect: 1, Required: true},
 		&core.TextField{Name: FieldAuthSecret, Required: true, Hidden: true, Min: 30},
 		&core.NumberField{Name: FieldMaxTokenSeconds, OnlyInt: true, Min: types.Pointer(0.0)},
+		&core.JSONField{Name: FieldAllowedPermissions, MaxSize: 100000},
 	)
 	col.AddIndex("idx_realms_slug", true, "slug", "")
 
@@ -173,10 +174,18 @@ func EnsureEnforcementFields(app core.App) error {
 	if err != nil {
 		return err
 	}
-	if col.Fields.GetByName(FieldMaxTokenSeconds) != nil {
+	missing := false
+	if col.Fields.GetByName(FieldMaxTokenSeconds) == nil {
+		col.Fields.Add(&core.NumberField{Name: FieldMaxTokenSeconds, OnlyInt: true, Min: types.Pointer(0.0)})
+		missing = true
+	}
+	if col.Fields.GetByName(FieldAllowedPermissions) == nil {
+		col.Fields.Add(&core.JSONField{Name: FieldAllowedPermissions, MaxSize: 100000})
+		missing = true
+	}
+	if !missing {
 		return nil
 	}
-	col.Fields.Add(&core.NumberField{Name: FieldMaxTokenSeconds, OnlyInt: true, Min: types.Pointer(0.0)})
 	return app.Save(col)
 }
 

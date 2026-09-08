@@ -124,6 +124,9 @@ func bindRBAC(app core.App) {
 				return errors.New("a role parent must belong to the same realm")
 			}
 		}
+		if err := enforcePermissionCatalog(e.App, realmID, e.Record.GetStringSlice(FieldPermissions)); err != nil {
+			return err
+		}
 		e.Record.Set(FieldAllPermissions, computeAllPermissions(e.App, e.Record, map[string]bool{}))
 		return e.Next()
 	}

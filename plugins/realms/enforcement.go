@@ -1,6 +1,7 @@
 package realms
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 // ceiling is always the tightest of the master's and the realm's own value, so
 // a child realm can be stricter than the master but can never loosen past it.
 const FieldMaxTokenSeconds = "maxTokenSeconds"
+
+// FieldAllowedPermissions is the master realm's permission catalog: the set of
+// permission keys that roles in child realms are allowed to grant. An empty
+// catalog means no restriction. The master realm is not bound by its own
+// catalog. A child realm inherits the catalog and cannot grant outside it.
+const FieldAllowedPermissions = "allowedPermissions"
 
 // tokenCeilingSeconds returns the effective token-lifetime ceiling for a realm:
 // the tightest positive value among the master realm's policy and the realm's
@@ -56,6 +63,41 @@ func clampTokenExp(app core.App, realm *core.Record, claims jwt.MapClaims) error
 	}
 	if exp == nil || limit < exp.Unix() {
 		claims["exp"] = limit
+	}
+	return nil
+}
+
+// enforcePermissionCatalog rejects a role that grants a permission outside the
+// master realm's catalog. The master realm is exempt (it defines the catalog),
+// an empty catalog means unrestricted, and a role granting nothing always
+// passes. Because every role in a realm is checked on its own directly-granted
+// permissions, an inheritance-flattened set can never exceed the catalog either.
+func enforcePermissionCatalog(app core.App, realmID string, perms []string) error {
+	if len(perms) == 0 {
+		return nil
+	}
+
+	master, err := MasterRealm(app)
+	if err != nil {
+		return err
+	}
+	if realmID == master.Id {
+		return nil
+	}
+
+	catalog := master.GetStringSlice(FieldAllowedPermissions)
+	if len(catalog) == 0 {
+		return nil
+	}
+
+	allowed := make(map[string]bool, len(catalog))
+	for _, p := range catalog {
+		allowed[p] = true
+	}
+	for _, p := range perms {
+		if !allowed[p] {
+			return fmt.Errorf("permission %q is not in the master realm catalog", p)
+		}
 	}
 	return nil
 }
