@@ -41,6 +41,10 @@ func ReSignRealmToken(app core.App, record *core.Record, stockToken string) (str
 		return "", errors.New("realm token signing key is empty")
 	}
 
+	if err := clampTokenExp(app, realm, claims); err != nil {
+		return "", err
+	}
+
 	claims[ClaimRealm] = realmID
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(key))
 }

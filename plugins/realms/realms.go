@@ -53,6 +53,9 @@ func Register(app core.App) error {
 		if err := EnsureRealmsCollection(e.App); err != nil {
 			return err
 		}
+		if err := EnsureEnforcementFields(e.App); err != nil {
+			return err
+		}
 		if err := EnsureMaster(e.App); err != nil {
 			return err
 		}
@@ -153,9 +156,26 @@ func EnsureRealmsCollection(app core.App) error {
 		&core.BoolField{Name: "isMaster"},
 		&core.SelectField{Name: "status", Values: []string{StatusActive, StatusDisabled}, MaxSelect: 1, Required: true},
 		&core.TextField{Name: FieldAuthSecret, Required: true, Hidden: true, Min: 30},
+		&core.NumberField{Name: FieldMaxTokenSeconds},
 	)
 	col.AddIndex("idx_realms_slug", true, "slug", "")
 
+	return app.Save(col)
+}
+
+// EnsureEnforcementFields adds the master-enforcement policy fields to an
+// existing realms collection. It is idempotent and self-repairing so a realm
+// store created before these fields existed gains them without a destructive
+// schema reset.
+func EnsureEnforcementFields(app core.App) error {
+	col, err := app.FindCollectionByNameOrId(CollectionRealms)
+	if err != nil {
+		return err
+	}
+	if col.Fields.GetByName(FieldMaxTokenSeconds) != nil {
+		return nil
+	}
+	col.Fields.Add(&core.NumberField{Name: FieldMaxTokenSeconds})
 	return app.Save(col)
 }
 
