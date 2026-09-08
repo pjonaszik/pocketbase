@@ -1,6 +1,7 @@
 package realms
 
 import (
+	"database/sql"
 	"errors"
 	"sort"
 
@@ -217,7 +218,10 @@ func UserHasPermission(app core.App, user *core.Record, permission string) (bool
 	for _, roleID := range user.GetStringSlice(FieldRoles) {
 		role, err := app.FindRecordById(CollectionRoles, roleID)
 		if err != nil {
-			continue // a dangling role reference grants nothing
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // a dangling role reference grants nothing (fail closed)
+			}
+			return false, err // surface real DB errors instead of masking them as denial
 		}
 		if list.ExistInSlice(permission, role.GetStringSlice(FieldAllPermissions)) {
 			return true, nil
@@ -228,11 +232,21 @@ func UserHasPermission(app core.App, user *core.Record, permission string) (bool
 
 // RequirePermission is a route middleware that allows the request only when the
 // authenticated record holds the given permission through its realm roles.
+//
+// IMPORTANT: this is a PERMISSION gate, not a tenant boundary. It asserts only
+// that the caller holds `permission` in one of its OWN-realm roles; permission
+// strings are a global namespace, so a user of any realm that has the string
+// passes. To scope a route to a specific realm, pair this with an explicit
+// realm check (e.g. e.Auth.GetString(FieldRealm) == targetRealmId) or a
+// realm-binding middleware. Superusers bypass the gate (as they bypass rules).
 func RequirePermission(permission string) *hook.Handler[*core.RequestEvent] {
 	return &hook.Handler[*core.RequestEvent]{
 		Func: func(e *core.RequestEvent) error {
 			if e.Auth == nil {
 				return e.UnauthorizedError("The request requires a valid authorization token.", nil)
+			}
+			if e.Auth.IsSuperuser() {
+				return e.Next()
 			}
 			ok, err := UserHasPermission(e.App, e.Auth, permission)
 			if err != nil {

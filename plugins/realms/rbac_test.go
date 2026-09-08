@@ -1,6 +1,7 @@
 package realms_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -448,5 +449,110 @@ func TestRequirePermissionOverHTTP(t *testing.T) {
 	}
 	if code := call(""); code != 401 {
 		t.Fatalf("anonymous: expected 401, got %d", code)
+	}
+}
+
+func permMux(t *testing.T, app core.App, perm string) http.Handler {
+	t.Helper()
+	pbRouter, err := apis.NewRouter(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pbRouter.Bind(realms.RealmAuthMiddleware(app))
+	pbRouter.GET("/p", func(e *core.RequestEvent) error {
+		return e.String(200, "ok")
+	}).Bind(realms.RequirePermission(perm))
+	mux, err := pbRouter.BuildMux()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mux
+}
+
+func callP(mux http.Handler, token string) int {
+	req := httptest.NewRequest("GET", "/p", nil)
+	if token != "" {
+		req.Header.Set("Authorization", token)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func TestUserHasPermissionSkipsDanglingRole(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	valid := makeRole(t, app, realm.Id, "valid", []string{"posts.write"}, nil)
+	u := realmUser(t, app, realm.Id, "u@example.com", []string{valid.Id})
+
+	// dangling id before a valid grant: the loop must skip the missing role and
+	// still find the permission (set in memory to bypass the write-time guard)
+	u.Set(realms.FieldRoles, []string{"nonexistentrole1", valid.Id})
+	ok, err := realms.UserHasPermission(app, u, "posts.write")
+	if err != nil {
+		t.Fatalf("a dangling role must not error: %v", err)
+	}
+	if !ok {
+		t.Fatal("a valid role after a dangling one must still grant the permission")
+	}
+}
+
+func TestRequirePermissionSuperuserBypasses(t *testing.T) {
+	app, _ := setupRBAC(t)
+	defer app.Cleanup()
+
+	suCol, err := app.FindCollectionByNameOrId(core.CollectionNameSuperusers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	su := core.NewRecord(suCol)
+	su.SetEmail("root@example.com")
+	su.SetPassword("password1234")
+	if err := app.Save(su); err != nil {
+		t.Fatal(err)
+	}
+	token, err := su.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mux := permMux(t, app, "posts.write")
+	if code := callP(mux, token); code != 200 {
+		t.Fatalf("a superuser must bypass the permission gate, got %d", code)
+	}
+}
+
+func TestRequirePermissionIsNotARealmBoundary(t *testing.T) {
+	// pins the contract: RequirePermission is a permission gate, not a tenant
+	// boundary - users of different realms both pass if each holds the perm
+	app, acme := setupRBAC(t)
+	defer app.Cleanup()
+
+	beta := newRealm(t, app, "beta")
+	acmeRole := makeRole(t, app, acme.Id, "w", []string{"posts.write"}, nil)
+	betaRole := makeRole(t, app, beta.Id, "w", []string{"posts.write"}, nil)
+	acmeUser := realmUser(t, app, acme.Id, "a@example.com", []string{acmeRole.Id})
+	betaUser := realmUser(t, app, beta.Id, "b@example.com", []string{betaRole.Id})
+
+	mux := permMux(t, app, "posts.write")
+	if code := callP(mux, realmToken(t, app, acmeUser)); code != 200 {
+		t.Fatalf("acme user with the permission: expected 200, got %d", code)
+	}
+	if code := callP(mux, realmToken(t, app, betaUser)); code != 200 {
+		t.Fatalf("beta user with the permission also passes (permission gate, not realm boundary): got %d", code)
+	}
+}
+
+func TestRequirePermissionEmptyStringDenies(t *testing.T) {
+	app, realm := setupRBAC(t)
+	defer app.Cleanup()
+
+	role := makeRole(t, app, realm.Id, "w", []string{"posts.write"}, nil)
+	u := realmUser(t, app, realm.Id, "u@example.com", []string{role.Id})
+
+	mux := permMux(t, app, "")
+	if code := callP(mux, realmToken(t, app, u)); code != 403 {
+		t.Fatalf("an empty required permission must deny an authenticated realm user, got %d", code)
 	}
 }
