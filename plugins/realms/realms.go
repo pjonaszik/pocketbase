@@ -40,7 +40,10 @@ func Register(app core.App) error {
 		if err := EnsureRealmsCollection(e.App); err != nil {
 			return err
 		}
-		return EnsureMaster(e.App)
+		if err := EnsureMaster(e.App); err != nil {
+			return err
+		}
+		return EnsureUsersRealmFields(e.App)
 	})
 
 	return nil
