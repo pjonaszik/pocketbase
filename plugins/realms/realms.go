@@ -53,6 +53,7 @@ func Register(app core.App) error {
 	})
 
 	bindRealmTokens(app)
+	bindRealmLogin(app)
 
 	return nil
 }
