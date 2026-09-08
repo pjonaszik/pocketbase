@@ -67,13 +67,21 @@ func clampTokenExp(app core.App, realm *core.Record, claims jwt.MapClaims) error
 	return nil
 }
 
-// enforcePermissionCatalog rejects a role that grants a permission outside the
-// master realm's catalog. The master realm is exempt (it defines the catalog),
-// an empty catalog means unrestricted, and a role granting nothing always
-// passes. Because every role in a realm is checked on its own directly-granted
-// permissions, an inheritance-flattened set can never exceed the catalog either.
-func enforcePermissionCatalog(app core.App, realmID string, perms []string) error {
-	if len(perms) == 0 {
+// enforcePermissionCatalog rejects a role whose EFFECTIVE (inheritance-flattened)
+// permissions include one outside the master realm's catalog. Checking the
+// flattened set, not just the role's own grants, means a role cannot smuggle a
+// non-catalog permission in through a parent. The master realm is exempt (it
+// defines the catalog), an empty catalog means unrestricted, and a role with no
+// effective permissions always passes.
+//
+// It is applied by roleGuard only when a role's own grants or parents change,
+// never on the internal denormalization re-saves the cascade performs, so a
+// revoke can still propagate through a subtree that predates a catalog change.
+// Tightening the catalog does NOT retroactively revoke permissions already
+// granted by roles that predate the change: those roles keep their grants until
+// they are next edited (which re-validates them) or removed.
+func enforcePermissionCatalog(app core.App, realmID string, effectivePerms []string) error {
+	if len(effectivePerms) == 0 {
 		return nil
 	}
 
@@ -94,7 +102,7 @@ func enforcePermissionCatalog(app core.App, realmID string, perms []string) erro
 	for _, p := range catalog {
 		allowed[p] = true
 	}
-	for _, p := range perms {
+	for _, p := range effectivePerms {
 		if !allowed[p] {
 			return fmt.Errorf("permission %q is not in the master realm catalog", p)
 		}

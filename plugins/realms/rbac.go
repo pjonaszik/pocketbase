@@ -124,10 +124,17 @@ func bindRBAC(app core.App) {
 				return errors.New("a role parent must belong to the same realm")
 			}
 		}
-		if err := enforcePermissionCatalog(e.App, realmID, e.Record.GetStringSlice(FieldPermissions)); err != nil {
-			return err
+		all := computeAllPermissions(e.App, e.Record, map[string]bool{})
+		// enforce the master catalog on the effective (flattened) set, but only
+		// when this write actually changes what the role grants or inherits.
+		// The cascade's denormalization re-saves leave own perms and parents
+		// untouched, so they must not be blocked by a grandfathered sibling.
+		if roleGrantsChanged(e.Record) {
+			if err := enforcePermissionCatalog(e.App, realmID, all); err != nil {
+				return err
+			}
 		}
-		e.Record.Set(FieldAllPermissions, computeAllPermissions(e.App, e.Record, map[string]bool{}))
+		e.Record.Set(FieldAllPermissions, all)
 		return e.Next()
 	}
 	app.OnRecordCreate(CollectionRoles).BindFunc(roleGuard)
@@ -197,6 +204,17 @@ func bindRBAC(app core.App) {
 
 		return nil
 	})
+}
+
+// roleGrantsChanged reports whether this write changes what the role directly
+// grants or inherits (its own permissions or its parents). On create the
+// original is blank, so any non-empty grant counts as a change; on the cascade's
+// denormalization re-saves both are untouched, so it returns false and the
+// catalog check is skipped.
+func roleGrantsChanged(role *core.Record) bool {
+	original := role.Original()
+	return !sameStringSet(role.GetStringSlice(FieldPermissions), original.GetStringSlice(FieldPermissions)) ||
+		!sameStringSet(role.GetStringSlice(FieldParents), original.GetStringSlice(FieldParents))
 }
 
 func sameStringSet(a, b []string) bool {
