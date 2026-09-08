@@ -8,9 +8,12 @@ package realms
 import (
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/security"
 )
 
@@ -46,7 +49,59 @@ func Register(app core.App) error {
 		return EnsureUsersRealmFields(e.App)
 	})
 
+	bindRealmTokens(app)
+
 	return nil
+}
+
+// bindRealmTokens wires the per-realm token issuance and verification: a realm
+// user's auth token is re-signed with its realm secret at issuance, and a
+// middleware verifies realm tokens before the stock loadAuthToken (which no-ops
+// once e.Auth is set). Non-realm users and superusers keep the stock behavior.
+func bindRealmTokens(app core.App) {
+	app.OnRecordAuthRequest(CollectionUsers).BindFunc(func(e *core.RecordAuthRequestEvent) error {
+		if e.Record != nil && e.Record.GetString(FieldRealm) != "" {
+			tok, err := SignRealmToken(e.App, e.Record)
+			if err != nil {
+				return err
+			}
+			e.Token = tok
+		}
+		return e.Next()
+	})
+
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		e.Router.Bind(RealmAuthMiddleware(e.App))
+		return e.Next()
+	})
+}
+
+// RealmAuthMiddleware authenticates a realm-signed bearer token and sets e.Auth
+// before the stock loadAuthToken (which no-ops once e.Auth is set). Non-realm
+// tokens and superusers fall through to the stock verifier untouched.
+func RealmAuthMiddleware(app core.App) *hook.Handler[*core.RequestEvent] {
+	return &hook.Handler[*core.RequestEvent]{
+		Id:       "realmsLoadAuthToken",
+		Priority: apis.DefaultLoadAuthTokenMiddlewarePriority - 10,
+		Func: func(e *core.RequestEvent) error {
+			if e.Auth == nil {
+				if token := realmBearerToken(e); token != "" {
+					if user, err := VerifyRealmToken(e.App, token); err == nil {
+						e.Auth = user
+					}
+				}
+			}
+			return e.Next()
+		},
+	}
+}
+
+func realmBearerToken(e *core.RequestEvent) string {
+	token := e.Request.Header.Get("Authorization")
+	if len(token) > 7 && strings.EqualFold(token[:7], "Bearer ") {
+		return token[7:]
+	}
+	return token
 }
 
 // EnsureRealmsCollection creates the realms collection if it does not exist yet.
