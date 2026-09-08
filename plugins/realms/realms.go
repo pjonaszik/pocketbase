@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/security"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // CollectionRealms is the name of the realms collection.
@@ -156,7 +157,7 @@ func EnsureRealmsCollection(app core.App) error {
 		&core.BoolField{Name: "isMaster"},
 		&core.SelectField{Name: "status", Values: []string{StatusActive, StatusDisabled}, MaxSelect: 1, Required: true},
 		&core.TextField{Name: FieldAuthSecret, Required: true, Hidden: true, Min: 30},
-		&core.NumberField{Name: FieldMaxTokenSeconds},
+		&core.NumberField{Name: FieldMaxTokenSeconds, OnlyInt: true, Min: types.Pointer(0.0)},
 	)
 	col.AddIndex("idx_realms_slug", true, "slug", "")
 
@@ -175,7 +176,7 @@ func EnsureEnforcementFields(app core.App) error {
 	if col.Fields.GetByName(FieldMaxTokenSeconds) != nil {
 		return nil
 	}
-	col.Fields.Add(&core.NumberField{Name: FieldMaxTokenSeconds})
+	col.Fields.Add(&core.NumberField{Name: FieldMaxTokenSeconds, OnlyInt: true, Min: types.Pointer(0.0)})
 	return app.Save(col)
 }
 

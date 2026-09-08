@@ -1,6 +1,7 @@
 package realms
 
 import (
+	"math"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -40,7 +41,14 @@ func clampTokenExp(app core.App, realm *core.Record, claims jwt.MapClaims) error
 		return nil
 	}
 
-	limit := time.Now().Add(time.Duration(ceiling) * time.Second).Unix()
+	// compute the deadline in unix seconds directly: multiplying into a
+	// time.Duration (nanoseconds) overflows int64 for ceilings above ~9.2e9s and
+	// wraps the deadline into the past, which would mint already-expired tokens.
+	now := time.Now().Unix()
+	if ceiling > math.MaxInt64-now {
+		return nil // so large it cannot bind before overflowing: treat as no ceiling
+	}
+	limit := now + ceiling
 
 	exp, err := claims.GetExpirationTime()
 	if err != nil {

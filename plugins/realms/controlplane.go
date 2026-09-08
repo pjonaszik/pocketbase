@@ -20,7 +20,7 @@ func MasterRealm(app core.App) (*core.Record, error) {
 // RequireMasterRealm is a route middleware that allows only a caller
 // authenticated in the master realm (or a superuser). It is the realm-binding
 // gate the control plane relies on: management of realms is a master-only act.
-func RequireMasterRealm(app core.App) *hook.Handler[*core.RequestEvent] {
+func RequireMasterRealm() *hook.Handler[*core.RequestEvent] {
 	return &hook.Handler[*core.RequestEvent]{
 		Func: func(e *core.RequestEvent) error {
 			if e.Auth == nil {
@@ -44,9 +44,9 @@ func RequireMasterRealm(app core.App) *hook.Handler[*core.RequestEvent] {
 // RegisterRealmRoutes installs the realm management endpoints onto the router.
 // It is called from OnServe and is exported so the same wiring can be exercised
 // under test.
-func RegisterRealmRoutes(r *router.Router[*core.RequestEvent], app core.App) {
+func RegisterRealmRoutes(r *router.Router[*core.RequestEvent]) {
 	r.POST("/api/realms", createRealmHandler).
-		Bind(RequireMasterRealm(app), RequirePermission(PermissionRealmManage))
+		Bind(RequireMasterRealm(), RequirePermission(PermissionRealmManage))
 }
 
 // createRealmHandler provisions a new child realm. The caller has already been
@@ -90,7 +90,7 @@ func createRealmHandler(e *core.RequestEvent) error {
 // bindControlPlane registers the realm management routes on serve.
 func bindControlPlane(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		RegisterRealmRoutes(e.Router, e.App)
+		RegisterRealmRoutes(e.Router)
 		return e.Next()
 	})
 }

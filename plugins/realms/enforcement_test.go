@@ -116,3 +116,19 @@ func TestMasterOwnTokensAreCapped(t *testing.T) {
 
 	assertTTLNear(t, tokenTTL(t, realmToken(t, app, admin)), 120)
 }
+
+func TestLargeCeilingDoesNotOverflowToInstantExpiry(t *testing.T) {
+	app, _, user := setupToken(t)
+	defer app.Cleanup()
+
+	// ~1000 years: a plausible "effectively unlimited" value an admin may type
+	// instead of the documented 0. Naive duration arithmetic (seconds * 1e9 ns)
+	// overflows int64 and wraps the deadline into the past, minting an already
+	// expired token for the whole subtree. A large ceiling must never shorten a
+	// token below its normal lifetime.
+	setMasterCeiling(t, app, 31536000000)
+
+	if ttl := tokenTTL(t, realmToken(t, app, user)); ttl <= 0 {
+		t.Fatalf("a very large ceiling must not overflow into an expired token, got ttl=%ds", ttl)
+	}
+}

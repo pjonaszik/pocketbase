@@ -33,7 +33,7 @@ func controlMux(t *testing.T, app core.App) http.Handler {
 		t.Fatal(err)
 	}
 	pbRouter.Bind(realms.RealmAuthMiddleware(app))
-	realms.RegisterRealmRoutes(pbRouter, app)
+	realms.RegisterRealmRoutes(pbRouter)
 	mux, err := pbRouter.BuildMux()
 	if err != nil {
 		t.Fatal(err)
