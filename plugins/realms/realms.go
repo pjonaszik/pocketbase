@@ -1,8 +1,10 @@
-// Package realms adds Keycloak-style realms on top of PocketBase: a single
-// immutable "master" realm seeded at bootstrap, from which other realms are
-// created. This is the foundation increment (collection + master seed +
-// master immutability); per-realm identity, RBAC and the policy ceiling build
-// on it.
+// Package realms adds Keycloak-style realms on top of PocketBase, entirely in
+// userland with no core changes: a single immutable "master" realm seeded at
+// bootstrap, from which child realms are provisioned. It layers per-realm
+// identity isolation and token signing, realm-scoped login, per-realm RBAC with
+// inheritance and cascading revocation, a control plane to create realms from
+// the master, and a master policy ceiling (token lifetime and permission
+// catalog) that child realms inherit and cannot loosen.
 package realms
 
 import (

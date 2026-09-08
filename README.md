@@ -157,18 +157,35 @@ A set of test-first fixes on top of upstream (geoDistance self-distance, chunked
 `Start`/`Stop` races, self-referential cascade delete, `$http.send` body errors, and more). Each was written
 test-first and the full `go test ./...` suite is kept green on `master`. Full list: [CHANGELOG-fork.md](CHANGELOG-fork.md).
 
-### Multi-realm layer (in progress)
+### Multi-realm layer
 
-A Keycloak-style realm model, built as a userland plugin (`plugins/realms/`) with no changes to the core:
+A Keycloak-style realm model, built entirely as a userland plugin (`plugins/realms/`) with **no changes to
+the PocketBase core**. It turns a single PocketBase instance into a set of isolated realms governed by one
+master:
 
-- an immutable `master` realm seeded at bootstrap, from which the other realms are created;
-- per-realm identity isolation (each realm with its own token secret, OAuth2 providers, and MFA/token policy);
-- structured RBAC (roles and permissions) scoped per realm;
-- a policy ceiling that flows from the master down to child realms, which they inherit and cannot loosen.
+- an immutable **`master` realm** seeded at bootstrap: it can never be deleted, disabled, demoted, renamed,
+  or duplicated, and it is the only realm from which other realms are provisioned;
+- **per-realm identity isolation**: each realm has its own token signing secret, users are unique per
+  `(realm, identity)`, and a token minted for one realm does not authenticate against another;
+- **realm-scoped login**: password auth is resolved within a realm, so the same identity can exist
+  independently in several realms;
+- **structured RBAC per realm**: roles carry permissions and may inherit from parent roles in the same realm;
+  the effective permission set is flattened and denormalized, and a revoke on a parent **cascades** to
+  descendants;
+- **permission-based authorization**: a `RequirePermission` route middleware gates endpoints on a caller's
+  flattened permissions (superusers bypass);
+- **a control plane**: `POST /api/realms`, callable only from the master realm and only with the
+  `realm:manage` permission, provisions a new child realm with its own signing secret;
+- **a master policy ceiling that child realms inherit and cannot loosen**: the master caps token lifetime
+  (`maxTokenSeconds`, tightest-wins so a child may be stricter but never looser) and defines the permission
+  catalog (a child realm's roles may only grant permissions the master has sanctioned).
 
-**Status: foundation only.** The realms collection, the master seed, and master immutability are delivered.
-The rest (per-realm token signing, RBAC, the policy ceiling, and realm provisioning) is on the roadmap and
-not yet shipped. Do not rely on the realm layer in production yet.
+Every behavior above is covered test-first (red seen before green, non-vacuity proven by neutering) and the
+full plugin suite runs green under `-race`. The layer is registered in `examples/base`, so the prebuilt
+binary seeds the master realm and the realm collections on first boot.
+
+**Not yet shipped:** per-realm OAuth2 providers, master-enforced MFA, and an Admin UI realm switcher. These
+are on the roadmap and called out here rather than implied by the list above.
 
 ## Why this fork
 
